@@ -1,0 +1,3748 @@
+{
+  "configuration" : { },
+  "description" : "Sistema de gestión de finanzas personales: registro de gastos e ingresos, planes de ahorro, presupuestos y notificaciones inteligentes.",
+  "documentation" : {
+    "decisions" : [ {
+      "content" : "# Recuperación Automática ante Fallos\n\nDate: 2026-06-03\n\n## Status\n\nAccepted\n\n## Context\n\nDurante la reunión ATAM, el **Usuario final** identificó la necesidad de que el sistema permanezca operativo incluso ante fallos del backend. Este atributo de calidad se definió de la siguiente manera:\n\n- **Atributo de calidad:** Disponibilidad\n- **Refinamiento:** Tiempo de recuperación ante fallos\n- **Requerimiento que lo hizo evidente:** En caso de una caída del backend, el sistema debe recuperarse automáticamente en menos de 3 minutos mediante health checks.\n- **Prioridad:** Alta\n\n**Escenario de evaluación (ATAM):**\n\n| Elemento | Descripción |\n|---|---|\n| **Fuente de estímulo** | Un fallo inesperado en el backend (corte de red, error del contenedor, agotamiento de memoria) |\n| **Estímulo** | El backend NestJS deja de responder a las peticiones HTTP |\n| **Artefacto** | ECS Fargate + Backend NestJS en contenedor |\n| **Respuesta** | ECS Fargate detecta la caída mediante health checks, detiene el contenedor fallido y lanza uno nuevo automáticamente |\n| **Medida de la respuesta** | El sistema se recupera en menos de 3 minutos (180 segundos) desde la detección del fallo |\n\n## Decision\n\nSe implementa un mecanismo de health checks periódicos en el backend NestJS que ECS Fargate utiliza para determinar el estado del contenedor. Si el health check falla, Fargate reemplaza automáticamente la tarea fallida por una nueva sin intervención manual.\n\n## Consequences\n\n- Positiva: Recuperación automática sin intervención humana, alineado con el requisito de < 3 minutos.\n- Positiva: La configuración de health checks es estándar en ECS Fargate y no requiere infraestructura adicional.\n- Negativa: Durante la ventana de recuperación (hasta 3 minutos), los usuarios experimentarán interrupción del servicio.\n- Negativa: Las peticiones en curso al momento del fallo se pierden y deben ser reintentadas por el cliente.\n",
+      "date" : "2026-06-03T00:00:00Z",
+      "format" : "Markdown",
+      "id" : "1",
+      "status" : "Accepted",
+      "title" : " Recuperación Automática ante Fallos"
+    }, {
+      "content" : "# Biblioteca de Componentes UI Reutilizables\n\nDate: 2026-06-03\n\n## Status\n\nProposed\n\n## Context\n\nDurante la reunión ATAM, el **Desarrollador** identificó la duplicación de esfuerzo al implementar los mismos patrones visuales en múltiples módulos del frontend. Este atributo de calidad se definió de la siguiente manera:\n\n- **Atributo de calidad:** Reusabilidad\n- **Refinamiento:** Componentes UI reutilizables\n- **Requerimiento que lo hizo evidente:** La biblioteca UI debe proveer componentes genéricos reutilizables en al menos 3 módulos diferentes.\n- **Prioridad:** Media\n\n**Escenario de evaluación (ATAM):**\n\n| Elemento | Descripción |\n|---|---|\n| **Fuente de estímulo** | Desarrollador frontend |\n| **Estímulo** | Necesita implementar una nueva funcionalidad que requiere componentes de tabla, gráfico financiero y formulario |\n| **Artefacto** | Biblioteca UI de FinTrack (uiLibrary) |\n| **Respuesta** | El desarrollador importa los componentes desde la biblioteca sin necesidad de implementarlos desde cero |\n| **Medida de la respuesta** | Los componentes se reutilizan en al menos 3 módulos distintos; un nuevo módulo puede integrarlos con menos de 10 líneas de configuración |\n\n## Decision\n\nSe crea una biblioteca de componentes Angular independiente (uiLibrary) que encapsula los elementos visuales compartidos: tablas, gráficos financieros, formularios, modales y esqueletos de carga. Los módulos funcionales importan estos componentes, evitando duplicación y garantizando consistencia visual.\n\n## Consequences\n\n- Positiva: Consistencia visual en toda la aplicación al usar los mismos componentes base.\n- Positiva: Reducción del tiempo de desarrollo de nuevos módulos al poder reutilizar componentes existentes.\n- Positiva: Mantenimiento centralizado: un cambio en un componente se propaga a todos los módulos que lo usan.\n- Negativa: Curva de aprendizaje inicial para que los desarrolladores conozcan los componentes disponibles.\n",
+      "date" : "2026-06-03T00:00:00Z",
+      "format" : "Markdown",
+      "id" : "2",
+      "status" : "Proposed",
+      "title" : " Biblioteca de Componentes UI Reutilizables"
+    }, {
+      "content" : "# Arquitectura de Adaptadores para Servicios Externos\n\nDate: 2026-06-03\n\n## Status\n\nAccepted\n\n## Context\n\nDurante la reunión ATAM, el **Desarrollador** identificó el acoplamiento directo entre el módulo OCR y Google Cloud Vision como un riesgo de vendor lock-in. Este atributo de calidad se definió de la siguiente manera:\n\n- **Atributo de calidad:** Intercambialidad\n- **Refinamiento:** Servicio de OCR intercambiable\n- **Requerimiento que lo hizo evidente:** El módulo de OCR debe permitir cambiar de Google Cloud Vision a otro proveedor modificando solo la implementación del servicio, sin afectar al controlador.\n- **Prioridad:** Media\n\n**Escenario de evaluación (ATAM):**\n\n| Elemento | Descripción |\n|---|---|\n| **Fuente de estímulo** | Desarrollador backend |\n| **Estímulo** | Se decide migrar de Google Cloud Vision a AWS Textract por costos o precisión |\n| **Artefacto** | Adaptador OCR (ocrAdapter) |\n| **Respuesta** | Se crea una nueva implementación del adaptador que usa AWS Textract; el módulo OCR y el resto del sistema no requieren cambios |\n| **Medida de la respuesta** | El cambio de proveedor se completa modificando únicamente el adaptador (1 archivo), sin tocar el módulo OCR ni el controlador. Tiempo de migración menor a 2 días-hombre |\n\n## Decision\n\nSe aplica el patrón Puerto-Adaptador (Hexagonal) en cada punto de integración externa. El módulo OCR depende de una interfaz (puerto) y el adaptador concreto implementa esa interfaz. Cambiar de proveedor solo implica crear un nuevo adaptador que implemente la misma interfaz.\n\n## Consequences\n\n- Positiva: Bajo impacto al cambiar de proveedor externo; solo se modifica el adaptador.\n- Positiva: Aislamiento del dominio de negocio frente a cambios en servicios externos.\n- Positiva: Facilita las pruebas unitarias al poder mockear la interfaz del puerto.\n- Negativa: Mayor cantidad de clases/interfaces que mantener (cada servicio externo requiere su adaptador).\n- Negativa: Es necesario definir contratos (interfaces) robustos desde el inicio para evitar refactorizaciones.\n",
+      "date" : "2026-06-03T00:00:00Z",
+      "format" : "Markdown",
+      "id" : "3",
+      "status" : "Accepted",
+      "title" : " Arquitectura de Adaptadores para Servicios Externos"
+    }, {
+      "content" : "# Monitoreo Proactivo con Alertas Automáticas\n\nDate: 2026-06-03\n\n## Status\n\nAccepted\n\n## Context\n\nDurante la reunión ATAM, el **Usuario de sistema** identificó la necesidad de detectar y responder a degradaciones del servicio antes de que afecten a los usuarios finales. Este atributo de calidad se definió de la siguiente manera:\n\n- **Atributo de calidad:** Disponibilidad\n- **Refinamiento:** Monitoreo proactivo de la salud del sistema\n- **Requerimiento que lo hizo evidente:** CloudWatch debe enviar una notificación en menos de 2 minutos cuando la tasa de error HTTP 5xx supere el 1% del tráfico total.\n- **Prioridad:** Media\n\n**Escenario de evaluación (ATAM):**\n\n| Elemento | Descripción |\n|---|---|\n| **Fuente de estímulo** | Pico de tráfico o error interno en el backend |\n| **Estímulo** | La tasa de errores HTTP 5xx supera el 1% del tráfico total en la API |\n| **Artefacto** | AWS CloudWatch + Backend NestJS (Adaptador de Monitoreo) |\n| **Respuesta** | CloudWatch dispara una alarma que notifica al usuario de sistema (operador) vía correo electrónico o dashboard |\n| **Medida de la respuesta** | La notificación se envía en menos de 2 minutos desde que se supera el umbral del 1% de errores 5xx |\n\n## Decision\n\nSe configura una alarma en AWS CloudWatch que monitorea la métrica de errores HTTP 5xx del ALB. Cuando la tasa supera el 1% del tráfico total en una ventana de 1 minuto, se dispara una notificación vía SNS hacia el equipo de operaciones. El Adaptador de Monitoreo centraliza el envío de métricas desde el backend.\n\n## Consequences\n\n- Positiva: Detección temprana de problemas de estabilidad en producción.\n- Positiva: Respuesta automatizada que reduce el tiempo de diagnóstico.\n- Negativa: Dependencia de AWS CloudWatch; migrar a otro proveedor de monitoreo requiere reconfigurar las alarmas.\n- Negativa: Los falsos positivos (por ejemplo, picos momentáneos) pueden generar alertas innecesarias si no se ajusta bien la ventana de evaluación.\n",
+      "date" : "2026-06-03T00:00:00Z",
+      "format" : "Markdown",
+      "id" : "4",
+      "status" : "Accepted",
+      "title" : " Monitoreo Proactivo con Alertas Automáticas"
+    }, {
+      "content" : "# Arquitectura Modular con Módulos Desacoplados\n\nDate: 2026-06-03\n\n## Status\n\nAccepted\n\n## Context\n\nDurante la reunión ATAM, el **Arquitecto de software** identificó la necesidad de que el sistema evolucione sin requerir reestructuraciones mayores. Este atributo de calidad se definió de la siguiente manera:\n\n- **Atributo de calidad:** Adaptabilidad\n- **Refinamiento:** Capacidad de incorporar nuevos módulos financieros\n- **Requerimiento que lo hizo evidente:** El sistema debe permitir agregar un nuevo módulo financiero (ej: inversiones, criptomonedas) sin modificar los módulos existentes.\n- **Prioridad:** Media\n\n**Escenario de evaluación (ATAM):**\n\n| Elemento | Descripción |\n|---|---|\n| **Fuente de estímulo** | Stakeholder de negocio |\n| **Estímulo** | Solicita agregar un módulo de gestión de inversiones en Bolsa |\n| **Artefacto** | Backend NestJS (API Gateway + módulos existentes) |\n| **Respuesta** | Se crea un nuevo módulo que se registra en el API Gateway y usa el Adaptador de Base de Datos existente; ningún módulo existente se modifica |\n| **Medida de la respuesta** | El nuevo módulo se integra sin modificar más del 5% del código existente, y está operativo en menos de 5 días-hombre |\n\n## Decision\n\nEl backend se estructura como un monolito modular donde cada módulo es un contexto delimitado independiente con su propio conjunto de rutas, servicios y pruebas. El API Gateway enruta las peticiones al módulo correspondiente sin que los módulos existentes necesiten conocer al nuevo.\n\n## Consequences\n\n- Positiva: Bajo acoplamiento entre módulos; se pueden desarrollar y probar de forma independiente.\n- Positiva: Escalamiento del equipo de desarrollo al poder asignar módulos completos a diferentes desarrolladores.\n- Negativa: Puede haber duplicación de lógica si dos módulos requieren funcionalidades similares.\n- Negativa: Sin una gobernanza adecuada, los módulos pueden terminar acoplados entre sí con el tiempo.\n",
+      "date" : "2026-06-03T00:00:00Z",
+      "format" : "Markdown",
+      "id" : "5",
+      "status" : "Accepted",
+      "title" : " Arquitectura Modular con Módulos Desacoplados"
+    }, {
+      "content" : "# Navegación Consistente y Experiencia Predictiva\n\nDate: 2026-06-03\n\n## Status\n\nProposed\n\n## Context\n\nDurante la reunión ATAM, el **Usuario final** identificó que la complejidad financiera no debe traducirse en complejidad de uso. Este atributo de calidad se definió de la siguiente manera:\n\n- **Atributo de calidad:** Facilidad de aprendizaje\n- **Refinamiento:** Curva de aprendizaje reducida para nuevo usuario\n- **Requerimiento que lo hizo evidente:** Un usuario nuevo debe poder completar su primera transacción sin asistencia externa.\n- **Prioridad:** Media\n\n**Escenario de evaluación (ATAM):**\n\n| Elemento | Descripción |\n|---|---|\n| **Fuente de estímulo** | Nuevo usuario final |\n| **Estímulo** | Accede a FinTrack por primera vez y quiere registrar un gasto |\n| **Artefacto** | Web PWA (App Shell, Dashboard, Transacciones) |\n| **Respuesta** | El sistema presenta una navegación consistente, etiquetas claras y un flujo guiado para completar la acción |\n| **Medida de la respuesta** | El usuario completa el registro de su primera transacción en menos de 2 minutos sin necesidad de ayuda externa ni tutorial |\n\n## Decision\n\nSe implementa un patrón de navegación consistente con App Shell como estructura principal, enrutamiento claro por módulos y un flujo de registro de transacciones que sigue una secuencia lógica predecible. Los labels, iconos y mensajes de error utilizan un lenguaje no técnico orientado al usuario final.\n\n## Consequences\n\n- Positiva: Reducción de la curva de aprendizaje, lo que aumenta la adopción por parte de nuevos usuarios.\n- Positiva: Menor necesidad de documentación y soporte al usuario.\n- Negativa: La simplicidad puede limitar la potencia de funcionalidades avanzadas para usuarios experimentados.\n- Negativa: Requiere un diseño UX/UI cuidadoso para mantener la consistencia en todos los flujos.\n",
+      "date" : "2026-06-03T00:00:00Z",
+      "format" : "Markdown",
+      "id" : "6",
+      "status" : "Proposed",
+      "title" : " Navegación Consistente y Experiencia Predictiva"
+    } ],
+    "sections" : [ {
+      "content" : "## Presentación General\n\n### ¿Qué es FinTrack?\n\nFinTrack es un sistema de gestión de finanzas personales diseñado para ayudar a las personas a tomar el control de su vida financiera. La aplicación permite registrar gastos e ingresos, crear presupuestos por categoría, generar planes de ahorro personalizados, simular estrategias de pago de deudas y recibir notificaciones inteligentes basadas en los hábitos de gasto del usuario.\n\n### El problema que resuelve\n\nLa mayoría de las personas carece de herramientas accesibles y completas para gestionar sus finanzas personales. Las soluciones existentes suelen ser demasiado genéricas, carecen de inteligencia para ofrecer recomendaciones personalizadas, o requieren que el usuario invierta demasiado tiempo en el registro manual de sus transacciones. Como resultado, es común perder el control de los gastos, no ahorrar de manera consistente y caer en ciclos de deuda sin una estrategia clara de salida.\n\nFinTrack aborda estos problemas desde múltiples frentes:\n\n* **Registro multimodal**: El usuario puede registrar transacciones de tres formas distintas — manualmente a través de formularios intuitivos, mediante captura de fotografías de facturas con reconocimiento OCR, o simplemente hablando para que el sistema transcriba y estructure la transacción por voz.\n* **Planificación financiera inteligente**: La aplicación no solo registra lo que el usuario gasta, sino que analiza sus patrones financieros para proponer planes de ahorro con metas concretas y simular estrategias de pago de deudas (método avalancha y bola de nieve).\n* **Presupuestos con monitoreo en tiempo real**: El usuario puede definir presupuestos por categoría y período, y el sistema dispara alertas cuando el consumo se acerca o supera el límite establecido.\n* **Notificaciones contextuales**: Las notificaciones no son genéricas; se activan según las reglas personalizadas y los hábitos de gasto del usuario, ayudándole a mantenerse al día sin abrumarlo.\n* **Integración bancaria**: A través de la API de Bancolombia Open Banking, FinTrack puede sincronizar automáticamente los movimientos bancarios del usuario, reduciendo la fricción del registro manual.\n\n### Audiencia objetivo\n\nFinTrack está dirigido a cualquier persona que quiera mejorar su salud financiera, desde jóvenes que recién comienzan a administrar sus ingresos hasta adultos con múltiples fuentes de ingreso, deudas y metas de ahorro a mediano y largo plazo. La aplicación está diseñada para ser igualmente útil tanto en Colombia (con integración bancaria local y soporte para la DIAN) como en otros mercados.\n",
+      "filename" : "01-presentacion.md",
+      "format" : "Markdown",
+      "order" : 1,
+      "title" : ""
+    }, {
+      "content" : "## Directrices del Negocio\n\nLas siguientes directrices de negocio se han identificado a partir del análisis del modelo y las relaciones definidas en el DSL de FinTrack. Estas directrices representan los principios y restricciones que gobiernan el diseño y la evolución del sistema.\n\n### Autenticación y autorización seguras\n\nEl sistema delega toda la gestión de identidad y acceso a Keycloak mediante el protocolo estándar OIDC (OpenID Connect). Ningún módulo de FinTrack maneja contraseñas o sesiones directamente. Esto garantiza que la autenticación sea robusta, auditablé y cumpla con estándares de seguridad empresarial. El frontend inicia el flujo OIDC directamente con Keycloak, y el backend valida los tokens JWT en cada petición entrante.\n\n### Captura inteligente de transacciones\n\nFinTrack ofrece tres mecanismos de registro para adaptarse al contexto del usuario:\n\n1. **Registro manual**: A través de formularios estructurados en la aplicación web o móvil.\n2. **Captura por foto (OCR)**: El usuario fotografía una factura o recibo, y el sistema utiliza Google Cloud Vision API para extraer los campos de texto estructurado (monto, fecha, comercio, etc.) y crear automáticamente la transacción.\n3. **Registro por voz**: El usuario dicta la transacción, y el sistema utiliza Whisper AI para transcribir el audio a texto y extraer los datos estructurados.\n\n### Integración bancaria automatizada\n\nA través de la API de Bancolombia Open Banking, FinTrack puede sincronizar automáticamente los saldos y movimientos bancarios del usuario. Esto reduce la fricción del registro manual y permite que el sistema tenga una visión más precisa y actualizada de la situación financiera del usuario. La integración está encapsulada detrás de un adaptador para poder cambiar de proveedor bancario sin afectar la lógica de negocio.\n\n### Notificaciones push inteligentes\n\nFinTrack utiliza Firebase Cloud Messaging (FCM) para enviar notificaciones push a los dispositivos de los usuarios. Las notificaciones no son genéricas: se activan según reglas personalizadas definidas por el módulo de notificaciones, que analiza los hábitos de gasto del usuario para determinar el momento y el contenido más relevantes.\n\n### Reportes financieros exportables\n\nEl sistema genera reportes financieros periódicos en formato PDF y Excel, que incluyen resúmenes de gastos, tendencias y proyecciones. Estos reportes se envían por correo electrónico a través de Amazon SES y se almacenan en Amazon S3 para consulta y descarga posterior desde la aplicación.\n\n### Monitoreo operativo y alertas automáticas\n\nTodos los logs, métricas y trazas del backend se envían a AWS CloudWatch, que proporciona capacidades de monitoreo en tiempo real, dashboards operativos y configuración de alarmas automáticas. Un usuario de sistema (sistemaUser) es responsable de monitorear la salud operativa de la plataforma a través de CloudWatch.\n\n### Arquitectura modular con adaptadores\n\nEl backend sigue una arquitectura de monolito modular donde cada módulo de negocio es un contexto delimitado independiente. La comunicación con servicios externos (Keycloak, Firebase, Google Cloud Vision, Amazon SES, Bancolombia, AWS CloudWatch, Whisper AI, S3, base de datos) se realiza exclusivamente a través de adaptadores que implementan puertos de infraestructura. Esto permite cambiar cualquier proveedor externo sin modificar la lógica de negocio de los módulos.\n\n### Experiencia de usuario consistente y offline\n\nLa aplicación web es una Progressive Web App (PWA) construida con Angular que incluye un Service Worker para soporte offline, precarga de recursos y recepción de notificaciones push. La interfaz utiliza una biblioteca de componentes UI reutilizables que garantiza consistencia visual en todos los módulos funcionales.\n\n### Cumplimiento fiscal y reportes gubernamentales\n\nA través de la integración con Bancolombia, y dado que Bancolombia reporta información financiera a la DIAN (Dirección de Impuestos y Aduanas Nacionales de Colombia), FinTrack opera dentro del marco regulatorio colombiano. La arquitectura considera que la información financiera fluye desde las entidades bancarias hacia el gobierno, y FinTrack actúa como un intermediario que presenta la información al usuario de manera comprensible.\n",
+      "filename" : "02-directrices.md",
+      "format" : "Markdown",
+      "order" : 2,
+      "title" : ""
+    }, {
+      "content" : "## Diagramas\n\n### Introducción a los diagramas en el modelo C4\n\nLos diagramas de arquitectura de software son una herramienta fundamental en la ingeniería de software moderna. Permiten visualizar la estructura, las relaciones y el comportamiento de un sistema de manera que el código fuente por sí solo no puede transmitir. En la industria, los diagramas facilitan la comunicación entre equipos técnicos y no técnicos, documentan decisiones de diseño, identifican riesgos de integración y sirven como guía para la evolución del sistema.\n\nEl modelo C4 (Contexto, Contenedores, Componentes y Código), creado por Simon Brown, propone un enfoque jerárquico y progresivo para la documentación de arquitectura. En lugar de un solo diagrama monolítico, el C4 ofrece cuatro niveles de abstracción que permiten al lector acercarse o alejarse según sus necesidades: desde una vista panorámica del ecosistema (contexto) hasta los detalles de implementación de un componente específico (código).\n\nFinTrack utiliza Structurizr como herramienta de modelado, lo que permite mantener los diagramas y la documentación sincronizados con el código a través de un DSL (Domain Specific Language). A continuación se presentan los diagramas C4 implementados para FinTrack en sus distintos niveles de abstracción.\n\n### Diagrama de Landscape\n\nEl diagrama de landscape (paisaje del sistema) es el nivel más amplio del modelo C4. Muestra el ecosistema completo de sistemas de software, tanto internos como externos, y las relaciones entre ellos. A diferencia del diagrama de contexto, que se centra en un solo sistema, el landscape ofrece una visión panorámica que incluye las interconexiones entre sistemas externos, revelando dependencias indirectas y flujos de información que atraviesan múltiples fronteras.\n\nEn FinTrack, el diagrama de landscape incluye no solo a FinTrack como sistema central y sus relaciones con los sistemas externos, sino también las relaciones entre esos sistemas externos. Por ejemplo, muestra cómo Bancolombia Open Banking API reporta información financiera a la DIAN, una conexión que existe independientemente de FinTrack pero que es relevante para entender el contexto financiero colombiano en el que opera la aplicación.\n\n![](embed:Landscape)\n\n### Diagrama de Contexto\n\nEl diagrama de contexto es el primer nivel del modelo C4 y ofrece una vista de alto nivel del sistema. Muestra el sistema de software en el centro (como una caja negra), los usuarios que lo utilizan y los sistemas externos con los que interactúa. Este diagrama responde a la pregunta fundamental: ¿qué hace el sistema y con quién se comunica?\n\nEn FinTrack, el diagrama de contexto muestra:\n\n* **El usuario final** como la persona que accede a la aplicación para gestionar sus finanzas personales.\n* **El usuario de sistema** como la persona encargada de monitorear la salud operativa de la plataforma.\n* **Sistemas externos**: Keycloak (autenticación OIDC), Firebase (notificaciones push), Google Cloud Vision API (OCR), Amazon SES (correo electrónico), Bancolombia Open Banking API (sincronización bancaria), y AWS CloudWatch (monitoreo).\n* **Sistemas externos adicionales**: La DIAN (como destino de reportes financieros desde Bancolombia) y el Sistema de Educación Financiera (como plataforma de contenido educativo accesible por el usuario).\n\nFinTrack se presenta como una caja negra: en este nivel no importa cómo está construido internamente, sino qué servicio ofrece y con qué sistemas se comunica para hacerlo.\n\n![](embed:SystemContext)\n\n### Diagrama de Contenedores\n\nEl diagrama de contenedores es el segundo nivel del modelo C4. Descompone el sistema de software en sus contenedores de alto nivel: aplicaciones, bases de datos, sistemas de archivos, etc. Cada contenedor es una unidad ejecutable o almacenable que representa un despliegue independiente. Este diagrama responde a la pregunta: ¿de qué partes está hecho el sistema y cómo se comunican entre sí?\n\nEn FinTrack, el diagrama de contenedores muestra:\n\n* **Web (PWA Angular)**: Aplicación web progresiva para navegadores de escritorio y móvil. Proporciona la interfaz principal para el registro de transacciones, gestión de presupuestos, consulta de planes y visualización de reportes.\n* **Mobile (Flutter)**: Aplicación móvil nativa para Android e iOS con funcionalidades adicionales como captura de facturas con la cámara y registro por voz.\n* **Backend (NestJS)**: API REST que provee todas las funcionalidades del sistema. Escrito en TypeScript con el framework NestJS, sigue una arquitectura modular.\n* **Base de datos (PostgreSQL 15)**: Almacena información de usuarios, transacciones, categorías, presupuestos, planes de ahorro y deudas.\n* **Almacenamiento de Activos (Amazon S3)**: Guarda imágenes de facturas, garantías y reportes financieros generados por el sistema.\n* **Whisper AI (Docker)**: Servicio de inteligencia artificial que transcribe audio a texto para el registro de transacciones por voz.\n\nLas relaciones entre contenedores muestran cómo el usuario accede a los frontends (web y móvil), cómo estos se comunican con el backend mediante HTTP/JSON, y cómo el backend interactúa con la base de datos, el almacenamiento y los servicios externos.\n\n![](embed:Containers)\n\n### Diagrama de Componentes\n\nEl diagrama de componentes es el tercer nivel del modelo C4. Descompone cada contenedor en sus componentes internos, mostrando la estructura arquitectónica dentro de un contenedor específico. Los componentes son unidades de funcionalidad bien definidas que colaboran entre sí para proporcionar el comportamiento del contenedor.\n\nEn FinTrack, se han definido dos diagramas de componentes, uno para cada contenedor principal que requiere descomposición interna.\n\n#### Diagrama de Componentes Backend\n\nEl backend de FinTrack sigue una arquitectura de monolito modular construida con NestJS. Se compone de los siguientes elementos:\n\n**Módulos de negocio**: Cada uno representa un contexto delimitado con sus propias rutas, servicios y lógica de dominio.\n\n* **API Gateway**: Punto de entrada único que enruta cada petición al módulo correspondiente.\n* **Módulo de Autenticación**: Gestiona el flujo OIDC y valida tokens JWT.\n* **Módulo de Transacciones**: CRUD de registros financieros.\n* **Módulo de Presupuestos**: Creación y monitoreo de presupuestos por categoría.\n* **Módulo de Plan de Ahorro**: Análisis de flujo de caja y propuestas de ahorro personalizadas.\n* **Módulo de Plan de Deudas**: Cálculo de estrategias óptimas de pago (avalancha y bola de nieve).\n* **Módulo de Notificaciones**: Reglas de notificación personalizadas y envío push.\n* **Módulo OCR**: Reconocimiento óptico de caracteres en imágenes de facturas.\n* **Módulo de Voz**: Transcripción de audio a texto para registro por voz.\n* **Módulo de Reportes**: Generación de reportes financieros en PDF y Excel.\n* **Módulo de Integración Bancaria**: Sincronización con Bancolombia Open Banking API.\n* **Módulo de Archivos**: Gestión del ciclo de vida de archivos en S3.\n* **Módulo de Logging**: Centralización de logs y métricas para monitoreo.\n* **Módulo de Reglas Financieras**: Motor de reglas condicionales del sistema.\n\n**Adaptadores de infraestructura (puertos)**: Cada adaptador implementa un puerto que abstrae un servicio externo, siguiendo el patrón de puertos y adaptadores (Hexagonal Architecture). Esto permite cambiar cualquier proveedor externo sin modificar la lógica de negocio.\n\n* **Adaptador de Autenticación**: Abstrae Keycloak.\n* **Adaptador de Notificaciones**: Abstrae Firebase FCM.\n* **Adaptador OCR**: Abstrae Google Cloud Vision API.\n* **Adaptador de Transcripción**: Abstrae Whisper AI.\n* **Adaptador de Correo**: Abstrae Amazon SES.\n* **Adaptador Bancario**: Abstrae Bancolombia Open Banking API.\n* **Adaptador de Archivos**: Abstrae Amazon S3.\n* **Adaptador de Monitoreo**: Abstrae AWS CloudWatch.\n* **Adaptador de Base de Datos**: Abstrae PostgreSQL.\n\n![](embed:Components)\n\n#### Diagrama de Componentes Aplicación Web\n\nLa aplicación web de FinTrack es una Progressive Web App construida con Angular. Se compone de los siguientes módulos y servicios:\n\n* **App Shell**: Estructura principal con navegación lateral y enrutamiento entre módulos funcionales. Es el marco que contiene todos los demás módulos.\n* **Autenticación**: Interfaz de inicio de sesión, registro y recuperación de contraseña mediante flujo OIDC.\n* **Dashboard**: Resumen financiero con indicadores clave y gráficos de evolución de gastos.\n* **Transacciones**: Listado, filtrado, creación y edición de transacciones financieras.\n* **Presupuestos**: Creación y monitoreo visual de presupuestos por categoría con alertas de consumo.\n* **Planes de Ahorro**: Visualización de planes de ahorro con metas, proyecciones y progreso.\n* **Planes de Deuda**: Comparativa de estrategias de pago con simulación de plazos e intereses.\n* **Reportes**: Solicitud, visualización y descarga de reportes financieros en PDF y Excel.\n* **Cliente API**: Capa de comunicación HTTP con interceptores JWT, manejo de errores y transformación de respuestas.\n* **Estado Global (Signals)**: Gestión del estado de la aplicación con Signals de Angular: sesión, catálogos y datos cacheados.\n* **Biblioteca UI**: Componentes reutilizables: tablas, gráficos financieros, formularios, modales y esqueletos de carga.\n* **Bus de Eventos**: Canal pub-sub que centraliza la comunicación por eventos entre módulos.\n* **Service Worker**: Service worker de Angular PWA para modo offline, precarga de recursos y notificaciones push.\n\nLas relaciones entre componentes muestran cómo el App Shell navega a cada módulo funcional, cómo los módulos publican y se suscriben al bus de eventos, y cómo el Cliente API se comunica con el backend y Keycloak.\n\n![](embed:WebComponents)\n\n### Diagramas de Despliegue\n\nEl diagrama de despliegue es un diagrama suplementario del modelo C4 (junto con el System Landscape diagram y el Dynamic diagram). No forma parte de la jerarquía principal de 4 niveles (Contexto → Contenedores → Componentes → Código), sino que complementa la documentación mostrando cómo las instancias de los contenedores y sistemas de software se asignan a la infraestructura dentro de un entorno de despliegue determinado (producción, staging, desarrollo, etc.). Responde a la pregunta: ¿cómo y dónde se ejecuta el sistema?\n\nEl modelo C4 trata los diagramas de despliegue como una vista que puede variar según el entorno y según la arquitectura de infraestructura elegida. Para FinTrack, se han modelado cuatro escenarios de despliegue distintos, cada uno representando una aproximación arquitectónica diferente.\n\n#### Diagrama de Despliegue Cloud\n\nEl despliegue en la nube representa la arquitectura de producción objetivo de FinTrack, utilizando servicios administrados de AWS:\n\n* **CloudFront**: CDN global con WAF y terminación SSL/TLS. Sirve la SPA Angular y actúa como puerta de entrada para el tráfico API.\n* **Application Load Balancer (ALB)**: Balanceador de carga con terminación TLS que distribuye el tráfico hacia el backend.\n* **ECS Fargate**: Orquestación de contenedores sin servidor con auto scaling (mín. 2, máx. 6 instancias). Aquí se ejecutan el backend NestJS y Whisper AI (con GPU NVIDIA T4).\n* **RDS PostgreSQL**: Base de datos administrada con configuración Multi-AZ para alta disponibilidad (db.t3.medium).\n* **S3**: Almacenamiento de objetos con cifrado AES-256 para activos y reportes.\n\nEsta arquitectura ofrece alta disponibilidad, escalabilidad elástica y mínimo mantenimiento operativo al delegar la administración de la infraestructura a AWS.\n\n![](embed:CloudDeployment)\n\n#### Diagrama de Despliegue Microservicios\n\nEl despliegue de microservicios representa una evolución arquitectónica donde el monolito modular se descompone en servicios independientes, cada uno con su propia base de datos y desplegado de forma autónoma:\n\n* **CloudFront**: CDN global como punto de entrada único.\n* **API Gateway (Kong)**: Enrutamiento, rate limiting y autenticación centralizada. Enruta cada petición al microservicio correspondiente mediante gRPC.\n* **Auth Service**: Gestiona autenticación OIDC. Base de datos PostgreSQL propia.\n* **Core Financial Service**: Transacciones, presupuestos, ahorro, deudas y reglas financieras. Base de datos PostgreSQL propia.\n* **Notification Service**: Notificaciones push y reglas de notificación.\n* **Media Service**: OCR y transcripción de voz.\n* **Reporting & Banking Service**: Reportes financieros e integración bancaria.\n* **File Service**: Gestión de archivos. Almacena en S3.\n* **S3**: Almacenamiento centralizado para archivos y reportes.\n\nCada microservicio se despliega en su propio nodo de cómputo con su propia base de datos, siguiendo el patrón de base de datos por servicio (database-per-service). Esto maximiza el desacoplamiento pero introduce complejidad en la coordinación y consistencia entre servicios.\n\n![](embed:MicroservicesDeployment)\n\n#### Diagrama de Despliegue Monolito\n\nEl despliegue monolito representa el escenario más simple: todos los componentes del sistema se ejecutan en un mismo servidor físico o virtual. Es el enfoque ideal para desarrollo local, pruebas o despliegues de bajo presupuesto:\n\n* **Dispositivo del Usuario**: Navegador web o aplicación móvil que se conecta al servidor.\n* **Servidor Monolito (localhost)**:\n  * **Servidor de Aplicaciones**: Node.js / NestJS + Whisper AI.\n  * **Servidor de Base de Datos**: PostgreSQL 15.\n\nEste despliegue sacrifica escalabilidad y alta disponibilidad, pero gana en simplicidad operativa y reducción de costos. Es útil para desarrollo, demostraciones y equipos pequeños.\n\n![](embed:MonolithDeployment)\n\n#### Diagrama de Despliegue MVC\n\nEl despliegue MVC (Modelo-Vista-Controlador) representa una aproximación clásica de tres capas donde cada capa se despliega en un servidor independiente:\n\n* **Servidor Vista (server1)**: Servidor web Nginx que sirve la aplicación Angular PWA.\n* **Servidor Controlador (server2)**: Servidor de aplicaciones Node.js / NestJS que ejecuta la lógica de negocio del backend y Whisper AI.\n* **Servidor Modelo (server3)**: Servidor de base de datos PostgreSQL 15.\n\nEsta topología ofrece una separación física de responsabilidades siguiendo el patrón MVC clásico, con cada capa en su propio servidor. Es un punto medio entre la simplicidad del monolito y la complejidad de la nube.\n\n![](embed:MVCDeployment)\n",
+      "filename" : "03-diagramas.md",
+      "format" : "Markdown",
+      "order" : 3,
+      "title" : ""
+    }, {
+      "content" : "## Diagramas PlantUML\n\n### ¿Qué es PlantUML?\n\nPlantUML es una herramienta de código abierto que permite crear diagramas UML a partir de texto plano usando un lenguaje de marcado sencillo e intuitivo. En el contexto de la arquitectura de software, PlantUML es especialmente valioso porque permite mantener los diagramas versionados junto con el código fuente, facilitando la revisión, la colaboración y la actualización continua de la documentación técnica. Al estar basado en texto, los diagramas de PlantUML se benefician de todas las herramientas del ecosistema de desarrollo: diff, merge, revisión de pull requests y automatización en pipelines de CI/CD.\n\nA diferencia de los diagramas generados por Structurizr (que se derivan directamente del modelo C4 definido en el DSL), los diagramas de PlantUML que se presentan a continuación fueron elaborados de forma independiente para complementar la documentación con perspectivas adicionales sobre la arquitectura del sistema. Mientras que Structurizr se enfoca en mantener la fidelidad entre el modelo y los diagramas, PlantUML ofrece flexibilidad para crear diagramas ad-hoc que exploran aspectos específicos de la arquitectura.\n\n### Diagrama de Componente en PlantUML\n\nEl siguiente diagrama de componentes elaborado en PlantUML presenta una vista simplificada de la arquitectura de FinTrack organizada en tres capas clásicas: presentación, negocio y datos. Aunque no sigue exactamente la misma descomposición que los diagramas de componentes de Structurizr (que son más granulares y fieles al modelo C4), este diagrama ofrece una visión complementaria útil para entender la separación de responsabilidades a un nivel arquitectónico más tradicional.\n\nEl diagrama utiliza el estilo UML2 con interfaces (bolas y sockets) para representar los contratos entre capas:\n\n* **Capa de Presentación**: Representada por la aplicación móvil (UI), que se comunica con la capa de negocio a través de una interfaz de cálculo y estrategias.\n* **Capa de Negocio**: Compuesta por el Gestor Financiero (Core) que orquesta las operaciones principales, y el Motor de Metodologías (Engine) que implementa los algoritmos financieros (cálculo de ahorro, estrategias de pago de deudas, etc.). La comunicación entre estos dos componentes sigue el patrón de interfaz registro y consulta.\n* **Capa de Datos**: El Repositorio de Datos (DB) provee persistencia a través de una interfaz de persistencia que el Motor de Metodologías consume.\n\n![](https://plantuml.com/plantuml/svg/VPB1JW8n48RlVOh9NeG31_5A2BAWsKGCaN0o7feoR1fAfscB4OqFumDuyX5uCMVBBcuCsaExsV-VxvzqEWfH-hZR6X4ssZhfvHOKRHrPj74HzmQ1nRuGJggDB16oN3e9AuIvny0UgVJXosRm9e3NuxLpCADdRQ2pBBfFC1YSQCCXo03BGhoVeTrZIKfJmpaLGNQB8PA76ssbLHezUnYJayVQMor7FceB6IHnVfa4pld5cb65uhWPHbgHeVBmAKEgcTfIst-G_Hfvhlc9Z1JEjFw0ZeBcI4qj6zCcux-3hdw2Bc22QsrrkkAAKDY8VYqL1kYCoR1z3mjI6uoXAtGZLi6b3j4JopdPi3DH9dZ1BSYsCJzy6BKpL86cN24ZLzOtKjnHgLNRFKSVc8iyXvfN_wbQvI1yqRo5LgUlObb0hzTfOCS3Ucb-GgGf9ZarbdOMZxCGefv9CZH9pGVR9cCXHcXNrUlz1W00)\n\n### Diagrama Wireframe\n\nLos diagramas wireframe son una herramienta fundamental en el diseño de experiencia de usuario (UX). Representan la estructura esquelética de una interfaz sin los detalles visuales (colores, tipografía, imágenes), permitiendo enfocarse en la disposición de los elementos, la jerarquía de la información y los flujos de navegación. En el contexto de FinTrack, los wireframes ayudan a validar que la aplicación sea intuitiva y que los usuarios puedan completar sus tareas financieras sin fricción.\n\nA continuación se presentan las pantallas principales de FinTrack modeladas como wireframes en PlantUML Salt:\n\n#### Inicio de Sesión\n\nPantalla de entrada a la aplicación con formulario de email y contraseña, enlace para recuperación de contraseña y opción de registro para nuevos usuarios.\n\n![](https://plantuml.com/plantuml/svg/HOun2i9044NxESKdfK8EO1KL1Ij1ov1Ys0moaEo6sKqQzK2MuX5oCPTO-Cl7U_2hcDXIv2xHVKqx5J-9rpQ0SLI_7GOYElIitGOF56CSsJHKBfX9A5te0HIq3puPHvdVl6YhtmggWPDNfsouIjJvuu66oipFtQJj_4AlSFyQJSvhNEIcCJEBalKdLUBRvU8N)\n\n#### Dashboard / Resumen Financiero\n\nPantalla principal que muestra el balance total, los ingresos y gastos del mes, gráficos de evolución financiera y los últimos movimientos registrados.\n\n![](https://plantuml.com/plantuml/svg/RP9BJW9148RtVOfE94Q5qG51ZJ46V14N6ABkY8kofu1AUgP9TKCqWnTnvm5SUOIvc3KuFgBkAjNV_zUhkpu01mysgBokyYtTOpEbXTDBFKGUavMWzpXFG3-fV4UVWP_UE-14qjSu8H-uHFle0nLlcOIdBXlJv4EUadTUX4hbwWGiP0RrhGjW3-MzfZkDzcwy7SVgCfimbcY2LW_GbyyZNHVaeD6AIqJVgJxuy1k916arzlShfAnqld1sRbRDN50c9GaPr4WVhTy3HsOgqnxhFXSlOp9EtFG9C8FuVJMnyBggjJ6qO73gR8AyAVwboupmFvUXA53cgfGpn_eK0auS5w_mnqYfuja6IeKSk0MbX9ceLBwcBb3CPROpz8PfPZwt-ksr58dGgjc91l0OjVOaSoFBPIelSLMyfJAsHFLQEvRTDji_iFbCZe9i876hKwMKb6XKQtQ4R7sJLnZ6bXvMcgeHbw6lM5dqa-fYbgp-pJi0)\n\n#### Panel de Registro de Transacciones\n\nPantalla para registrar una nueva transacción financiera, con opciones rápidas inteligentes como registro por voz y captura de factura con la cámara.\n\n![](https://plantuml.com/plantuml/svg/HP71IiD048Rl-nH340zARLgeXoAbDM9FQf7UnC0acJGhcvqmkn6qzc4yUl3a8-J5tAI2j-7Zdzd_OvVEetY7nglzkTgVmKhoIhyoVC26fDGc3Aktja0ugFqORj1L6QCK0J_IJZilVNHDpklknuOnOLlgtN6zrevTM5HghxQwuNd0wHgTvrJTiVK3Y4uWleZZI2KjMOz3vbeRGvu4OIFQvhf1awe4FUrOkkzZ9k5Q5vYgMyghWKIJsJYUZQVnz39Iz-pH3NHbwfRadQ4Wy88Pld2a3ke9hauBz3WApBgIPDGsXh5OmBeDVYZ_Viz1uA79DLjo8Drd4zvreAqdetUXCxdvSAxMkN1JXTW2jfmZD1WCAimCoXoYNhpxWiaCo0B-jOh2zNutnpheZfoH1IJO-5P2Wv9zNzk0KAwpliX1BSaMmtVz0W00)\n\n#### Cuentas y Categorías\n\nPantalla de gestión donde el usuario puede administrar sus cuentas (bancarias, efectivo, tarjetas) y categorías de gasto de forma jerárquica.\n\n![](https://plantuml.com/plantuml/svg/PP6_JWCn3CRtF8Kd17JW1H3gSI0cggfKNL07S-UshjAasBcJq74FnC34ndelXdFyMPZYs9y__-9CDQ4aHPzSDt7TEHHIxRYDy0fpaWrx2ugNfaReNNS1DwYxfuXIMtf1MzOaMNf7cdZu21QMCMnu-zr-O8rgZSvrhcme95GegiIjdQR4HDiemxlTIY6iKLstT1FubLvZg53OqfF9U8ammufZG0-dnIwAH3tBjINAdX92JMOqlDMS8gnOqRnkDvG7nj62lQT4WfbDiqtEbhX7kASG1MR6O_wkDxgHPCKjKwWnwmh_tB0doV43ISkcL9WFdq-UgsYCfk139g_oAaPPSxGba5HOZm0BMnCsWY6HkjuzmkN9qJTw1RE6MlnvDwnj-h_ItwvWRPszcnhM-6jV)\n\n#### Configuración\n\nPantalla de preferencias donde el usuario configura la moneda principal, el idioma, el tema visual y las notificaciones.\n\n![](https://plantuml.com/plantuml/svg/DL7DIWCn4BxdAURWeTM3TqzTgeW7xL94XDB2D9bj1tOpOP8jIkt3-0ZY8_J5dDtYAH_vVkRBP9OBQidO5dUySSThgDJl-I3m1JLfmws1whCF22Ttl8LxpFkje0QxNjAESz51-aYvyFat6fnBR7XtiNUS9PlHkLgf8QNe6REf8ocsbDspHBBeMjcOXEsT-JRpHGsJg-d6FGMM3Y4Gj0XLIYFxa1EUVwJTk5SoyerpV_5DfZ1lSQnZS95z_u-hlaXt_YxinQgyIE66FNgsuTcjtjTG-S87LB1EMgoWJKnAkK-zlKk0FZm53Z9gb-H50nPH5WYCmv5G4VIo3elPeRai6KOrRrbXIEieGhRE4Lj8ec0vIaEZ5Jpsjb9pph7RigrixKvkHZ6C__87)\n\n#### Permisos y Colaboradores\n\nPantalla para compartir cuentas financieras con otros usuarios, asignar permisos específicos y gestionar colaboradores existentes.\n\n![](https://plantuml.com/plantuml/svg/RLBRQW9137sVhmWM-j2RxrAArahfIrjweo0ASIQk0xCJoSmkYFfL_OJ-MBFh1H_AFap8oKbEJhQVCafE6B9PNvhr1Gp4BdpDi85NahaF6WnMbKFOcdKN7Z0jPepYDFr6XKzPcj97Ijd__aGDXnpdljZHIvyuAT6O8PTBdUC5XXN5ZEQT0bdhEU8XrLFEzDw7G9a4uS1mE3MZ4bM8em2M0yvOqB4qzPqvbZvubBvb4U8RosL7nxraba8x7pJqpFXx0byae9iwrRI2acjVUXtCgGK7XL13YHNLMY3xvHI42OoSLvkwew2KHl4HLL70-xBRSuer1LxIjGsSoDt1ADOg3fxqoMXRXoOgxpDLA5xPbYEWjPHOdrnXCEkp0zfusHfpOiMfhNeNsxOqb9QSiD-Or1YWo7ysQbeDk3ekke6ndh1cg_749DPZdBROptwcea4qyS4PGylQkQ6ahNvzYgxzVVu0)\n",
+      "filename" : "04-plantuml.md",
+      "format" : "Markdown",
+      "order" : 4,
+      "title" : ""
+    }, {
+      "content" : "## Decisiones de Arquitectura\n\n### Método ATAM\n\nPara la toma de decisiones arquitectónicas en FinTrack se utilizó el método **ATAM (Architecture Tradeoff Analysis Method)**, un enfoque estructurado y probado en la industria para evaluar decisiones de arquitectura de software en función de atributos de calidad. ATAM no solo documenta qué se decidió, sino que expone explícitamente las compensaciones (tradeoffs) entre diferentes fuerzas arquitectónicas como rendimiento, disponibilidad, seguridad, mantenibilidad y costo.\n\nEl proceso ATAM aplicado a FinTrack siguió los siguientes pasos:\n\n| Paso | Descripción |\n|---|---|\n| **Presentar ATAM** | Introducción del método ATAM a los stakeholders, explicando los objetivos, la dinámica de las sesiones y los entregables esperados. |\n| **Presentar las directrices de negocio** | Exposición de las motivaciones del negocio, los drivers arquitectónicos y las restricciones del proyecto. Se presentaron las directrices como las detalladas en la sección anterior de este documento. |\n| **Presentar la arquitectura** | Exposición de la arquitectura propuesta de FinTrack: modelo C4, contenedores, componentes, adaptadores y decisiones de despliegue. |\n| **Identificar las aproximaciones de arquitectura** | Identificación de los enfoques arquitectónicos adoptados: monolito modular con NestJS, patrón de puertos y adaptadores, PWA con Angular, despliegue cloud-native, etc. |\n| **Crear el árbol de atributos** | Construcción de un árbol de atributos de calidad priorizados (disponibilidad, seguridad, mantenibilidad, rendimiento, usabilidad) con refinamientos y escenarios concretos para cada uno. |\n| **Analizar las aproximaciones de arquitectura** | Evaluación de cada aproximación arquitectónica contra los atributos de calidad del árbol, identificando puntos de riesgo, sensibilidades y tradeoffs. |\n| **Lluvia de ideas y priorización de escenarios** | Generación colaborativa de escenarios adicionales por parte de los stakeholders, seguida de una votación para priorizar los escenarios más críticos. |\n| **Re-analizar las aproximaciones** | Reevaluación de las aproximaciones arquitectónicas a la luz de los escenarios priorizados, ajustando las decisiones según los nuevos hallazgos. |\n| **Presentar los resultados** | Documentación y comunicación formal de las decisiones arquitectónicas, los riesgos identificados y las compensaciones aceptadas. |\n\n### Decisiones Registradas (ADRs)\n\nComo resultado del proceso ATAM, cada decisión arquitectónica fue registrada como un **ADR (Architecture Decision Record)** utilizando el formato estándar de Plantilla de Decisiones de Arquitectura de Structurizr. Cada ADR documenta:\n\n* El contexto y la motivación detrás de la decisión.\n* El atributo de calidad evaluado y su escenario ATAM asociado.\n* La decisión tomada, incluyendo el enfoque arquitectónico seleccionado.\n* Las consecuencias positivas y negativas (tradeoffs) de la decisión.\n\nLas decisiones de arquitectura de FinTrack se encuentran en el directorio `decisions/` de este proyecto, y están integradas con Structurizr mediante la directiva `!adrs decisions` en el DSL. Esto permite visualizarlas directamente desde el panel de documentación de Structurizr, manteniendo las decisiones sincronizadas con el modelo arquitectónico.\n\nLas seis decisiones registradas hasta la fecha son:\n\n1. **Recuperación automática ante fallos** (0001) — Health checks en ECS Fargate para recuperación en menos de 3 minutos.\n2. **Biblioteca de componentes UI reutilizables** (0002) — Biblioteca Angular de componentes compartidos para consistencia visual.\n3. **Arquitectura de adaptadores para servicios externos** (0003) — Patrón de puertos y adaptadores para desacoplar infraestructura.\n4. **Monitoreo proactivo y alertas automáticas** (0004) — Logging centralizado con AWS CloudWatch y alarmas automáticas.\n5. **Arquitectura modular con módulos desacoplados** (0005) — Módulos como contextos delimitados independientes en el backend.\n6. **Navegación consistente y experiencia predictiva** (0006) — App Shell con enrutamiento claro y flujos guiados.\n\nPara más información sobre el formato de decisiones de arquitectura en Structurizr, puedes consultar la documentación oficial: [Structurizr — Architecture Decisions](https://docs.structurizr.com/server/decisions).\n",
+      "filename" : "05-decisiones.md",
+      "format" : "Markdown",
+      "order" : 5,
+      "title" : ""
+    } ]
+  },
+  "id" : 2,
+  "lastModifiedDate" : "2026-06-05T04:37:29Z",
+  "model" : {
+    "deploymentNodes" : [ {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "12",
+          "environment" : "Monolito",
+          "id" : "141",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "270d8fc6-3e36-4e8b-afda-00233df37b57"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "146",
+            "id" : "147",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "141",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Monolito",
+        "id" : "140",
+        "instances" : "1",
+        "name" : "Navegador Web",
+        "properties" : {
+          "structurizr.dsl.identifier" : "localBrowser"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Chrome, Firefox, Safari, Edge"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "26",
+          "environment" : "Monolito",
+          "id" : "143",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "deaacce3-c1a3-43b5-ba8b-5188d5f25a21"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "146",
+            "id" : "148",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "143",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Monolito",
+        "id" : "142",
+        "instances" : "1",
+        "name" : "App Móvil",
+        "properties" : {
+          "structurizr.dsl.identifier" : "localMobile"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Android 10+ / iOS 14+"
+      } ],
+      "environment" : "Monolito",
+      "id" : "139",
+      "instances" : "1",
+      "name" : "Dispositivo del Usuario",
+      "properties" : {
+        "structurizr.dsl.identifier" : "localUserDevice"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Navegador web o dispositivo móvil"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "environment" : "Monolito",
+          "id" : "146",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "48a9366f-2de1-4a07-8883-31c28666a0c0"
+          },
+          "relationships" : [ {
+            "description" : "Envía audio para transcripción",
+            "destinationId" : "149",
+            "id" : "150",
+            "linkedRelationshipId" : "70",
+            "sourceId" : "146",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Lee de y escribe a",
+            "destinationId" : "152",
+            "id" : "153",
+            "linkedRelationshipId" : "68",
+            "sourceId" : "146",
+            "technology" : "TCP / SQL"
+          } ],
+          "tags" : "Container Instance"
+        }, {
+          "containerId" : "53",
+          "environment" : "Monolito",
+          "id" : "149",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "454b65e1-51b1-4637-a6c6-a4062979968a"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Monolito",
+        "id" : "145",
+        "instances" : "1",
+        "name" : "Servidor de Aplicaciones",
+        "properties" : {
+          "structurizr.dsl.identifier" : "monoAppServer"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Node.js / NestJS + Whisper"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "51",
+          "environment" : "Monolito",
+          "id" : "152",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "b357f3ef-7685-47d0-9a4a-b4ecfe9c8c17"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Monolito",
+        "id" : "151",
+        "instances" : "1",
+        "name" : "Servidor de Base de Datos",
+        "properties" : {
+          "structurizr.dsl.identifier" : "monoDbServer"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "PostgreSQL 15"
+      } ],
+      "description" : "localhost",
+      "environment" : "Monolito",
+      "id" : "144",
+      "instances" : "1",
+      "name" : "Servidor Monolito",
+      "properties" : {
+        "structurizr.dsl.identifier" : "monolithServer"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "12",
+          "environment" : "Cloud",
+          "id" : "156",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "f13e111b-512d-4bca-b77d-e9859ccbd441"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "164",
+            "id" : "165",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "156",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Cloud",
+        "id" : "155",
+        "instances" : "1",
+        "name" : "Navegador Web",
+        "properties" : {
+          "structurizr.dsl.identifier" : "cloudBrowser"
+        },
+        "relationships" : [ {
+          "description" : "Descarga SPA",
+          "destinationId" : "160",
+          "id" : "176",
+          "sourceId" : "155",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        }, {
+          "description" : "Consume API",
+          "destinationId" : "161",
+          "id" : "177",
+          "sourceId" : "155",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / JSON"
+        } ],
+        "tags" : "Element,Deployment Node",
+        "technology" : "Chrome, Firefox, Safari, Edge"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "26",
+          "environment" : "Cloud",
+          "id" : "158",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "c7130375-e766-489c-8015-dbfbe6aaf205"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "164",
+            "id" : "166",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "158",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Cloud",
+        "id" : "157",
+        "instances" : "1",
+        "name" : "App Móvil",
+        "properties" : {
+          "structurizr.dsl.identifier" : "cloudMobile"
+        },
+        "relationships" : [ {
+          "description" : "Consume API",
+          "destinationId" : "161",
+          "id" : "178",
+          "sourceId" : "157",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / JSON"
+        } ],
+        "tags" : "Element,Deployment Node",
+        "technology" : "Android 10+ / iOS 14+"
+      } ],
+      "environment" : "Cloud",
+      "id" : "154",
+      "instances" : "1",
+      "name" : "Dispositivo del Usuario",
+      "properties" : {
+        "structurizr.dsl.identifier" : "cloudUserDev"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Navegador web o dispositivo móvil"
+    }, {
+      "children" : [ {
+        "environment" : "Cloud",
+        "id" : "160",
+        "instances" : "1",
+        "name" : "CloudFront",
+        "properties" : {
+          "structurizr.dsl.identifier" : "cdn"
+        },
+        "relationships" : [ {
+          "description" : "Reenvía tráfico de API",
+          "destinationId" : "161",
+          "id" : "179",
+          "sourceId" : "160",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        } ],
+        "tags" : "Element,Deployment Node,Amazon Web Services - CloudFront",
+        "technology" : "CDN global - WAF y SSL/TLS"
+      }, {
+        "environment" : "Cloud",
+        "id" : "161",
+        "instances" : "1",
+        "name" : "ALB",
+        "properties" : {
+          "structurizr.dsl.identifier" : "alb"
+        },
+        "relationships" : [ {
+          "description" : "Distribuye tráfico hacia",
+          "destinationId" : "162",
+          "id" : "180",
+          "sourceId" : "161",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        } ],
+        "tags" : "Element,Deployment Node,Amazon Web Services - Elastic Load Balancing",
+        "technology" : "Application Load Balancer - Terminación TLS"
+      }, {
+        "children" : [ {
+          "containerInstances" : [ {
+            "containerId" : "27",
+            "environment" : "Cloud",
+            "id" : "164",
+            "instanceId" : 1,
+            "properties" : {
+              "structurizr.dsl.identifier" : "6d2acb9a-419e-46bc-bf5e-cf24fce54dcb"
+            },
+            "relationships" : [ {
+              "description" : "Envía audio para transcripción",
+              "destinationId" : "168",
+              "id" : "169",
+              "linkedRelationshipId" : "70",
+              "sourceId" : "164",
+              "technology" : "HTTPS / REST"
+            }, {
+              "description" : "Lee de y escribe a",
+              "destinationId" : "171",
+              "id" : "172",
+              "linkedRelationshipId" : "68",
+              "sourceId" : "164",
+              "technology" : "TCP / SQL"
+            }, {
+              "description" : "Carga y descarga archivos",
+              "destinationId" : "174",
+              "id" : "175",
+              "linkedRelationshipId" : "69",
+              "sourceId" : "164",
+              "technology" : "HTTPS / AWS SDK"
+            } ],
+            "tags" : "Container Instance"
+          } ],
+          "environment" : "Cloud",
+          "id" : "163",
+          "instances" : "1",
+          "name" : "Backend NestJS",
+          "properties" : {
+            "structurizr.dsl.identifier" : "backend"
+          },
+          "tags" : "Element,Deployment Node",
+          "technology" : "2 vCPU / 4 GB RAM"
+        }, {
+          "containerInstances" : [ {
+            "containerId" : "53",
+            "environment" : "Cloud",
+            "id" : "168",
+            "instanceId" : 1,
+            "properties" : {
+              "structurizr.dsl.identifier" : "e046024e-36c2-4df7-9698-817a7bd5ca81"
+            },
+            "tags" : "Container Instance"
+          } ],
+          "environment" : "Cloud",
+          "id" : "167",
+          "instances" : "1",
+          "name" : "Whisper AI",
+          "properties" : {
+            "structurizr.dsl.identifier" : "whisperSvc"
+          },
+          "tags" : "Element,Deployment Node",
+          "technology" : "GPU NVIDIA T4"
+        } ],
+        "environment" : "Cloud",
+        "id" : "162",
+        "instances" : "1",
+        "name" : "ECS Fargate",
+        "properties" : {
+          "structurizr.dsl.identifier" : "compute"
+        },
+        "tags" : "Element,Deployment Node,Amazon Web Services - ECS",
+        "technology" : "Auto Scaling (mín. 2, máx. 6)"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "51",
+          "environment" : "Cloud",
+          "id" : "171",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "3a0e4995-7b6e-45b9-9452-0a18efad78e4"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Cloud",
+        "id" : "170",
+        "instances" : "1",
+        "name" : "RDS PostgreSQL",
+        "properties" : {
+          "structurizr.dsl.identifier" : "rds"
+        },
+        "tags" : "Element,Deployment Node,Amazon Web Services - RDS",
+        "technology" : "Multi-AZ - db.t3.medium"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "52",
+          "environment" : "Cloud",
+          "id" : "174",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "f9f09101-0389-439f-bf80-61cc77434a31"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Cloud",
+        "id" : "173",
+        "instances" : "1",
+        "name" : "S3",
+        "properties" : {
+          "structurizr.dsl.identifier" : "storage"
+        },
+        "tags" : "Element,Deployment Node,Amazon Web Services - S3",
+        "technology" : "Cifrado AES-256"
+      } ],
+      "environment" : "Cloud",
+      "id" : "159",
+      "instances" : "1",
+      "name" : "Amazon Web Services",
+      "properties" : {
+        "structurizr.dsl.identifier" : "awsCloud"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - Cloud",
+      "technology" : "Región us-east-1"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "12",
+          "deploymentGroups" : [ "Auth", "Core Financial", "Files", "Media", "Notifications", "Reporting" ],
+          "environment" : "Arquitectura Microservicios",
+          "id" : "183",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "ca5b63f3-dc1c-45ae-a85b-c2134b0f3226"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "190",
+            "id" : "191",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "183",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "198",
+            "id" : "199",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "183",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "206",
+            "id" : "207",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "183",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "211",
+            "id" : "212",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "183",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "216",
+            "id" : "217",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "183",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "221",
+            "id" : "222",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "183",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "182",
+        "instances" : "1",
+        "name" : "Navegador Web",
+        "properties" : {
+          "structurizr.dsl.identifier" : "svcBrowser"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Chrome, Firefox, Safari, Edge"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "26",
+          "deploymentGroups" : [ "Auth", "Core Financial", "Files", "Media", "Notifications", "Reporting" ],
+          "environment" : "Arquitectura Microservicios",
+          "id" : "185",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "85a9a0a3-d982-4872-aca1-18efeae874f7"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "190",
+            "id" : "192",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "185",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "198",
+            "id" : "200",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "185",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "206",
+            "id" : "208",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "185",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "211",
+            "id" : "213",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "185",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "216",
+            "id" : "218",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "185",
+            "technology" : "HTTPS / JSON"
+          }, {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "221",
+            "id" : "223",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "185",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "184",
+        "instances" : "1",
+        "name" : "App Móvil",
+        "properties" : {
+          "structurizr.dsl.identifier" : "svcMobile"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Android 10+ / iOS 14+"
+      } ],
+      "environment" : "Arquitectura Microservicios",
+      "id" : "181",
+      "instances" : "1",
+      "name" : "Dispositivo del Usuario",
+      "properties" : {
+        "structurizr.dsl.identifier" : "svcUserDevice"
+      },
+      "relationships" : [ {
+        "description" : "Descarga SPA",
+        "destinationId" : "186",
+        "id" : "226",
+        "sourceId" : "181",
+        "tags" : "Relationship",
+        "technology" : "HTTPS"
+      }, {
+        "description" : "Consume API",
+        "destinationId" : "187",
+        "id" : "227",
+        "sourceId" : "181",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / JSON"
+      } ],
+      "tags" : "Element,Deployment Node",
+      "technology" : "Navegador web o dispositivo móvil"
+    }, {
+      "environment" : "Arquitectura Microservicios",
+      "id" : "186",
+      "instances" : "1",
+      "name" : "CloudFront",
+      "properties" : {
+        "structurizr.dsl.identifier" : "microCdn"
+      },
+      "relationships" : [ {
+        "description" : "Reenvía tráfico",
+        "destinationId" : "187",
+        "id" : "228",
+        "sourceId" : "186",
+        "tags" : "Relationship",
+        "technology" : "HTTPS"
+      } ],
+      "tags" : "Element,Deployment Node,Amazon Web Services - CloudFront",
+      "technology" : "CDN global - WAF y SSL/TLS"
+    }, {
+      "environment" : "Arquitectura Microservicios",
+      "id" : "187",
+      "instances" : "1",
+      "name" : "API Gateway",
+      "properties" : {
+        "structurizr.dsl.identifier" : "microGw"
+      },
+      "relationships" : [ {
+        "description" : "Enruta autenticación a",
+        "destinationId" : "189",
+        "id" : "229",
+        "sourceId" : "187",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / gRPC"
+      }, {
+        "description" : "Enruta operaciones financieras a",
+        "destinationId" : "197",
+        "id" : "230",
+        "sourceId" : "187",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / gRPC"
+      }, {
+        "description" : "Enruta notificaciones a",
+        "destinationId" : "205",
+        "id" : "231",
+        "sourceId" : "187",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / gRPC"
+      }, {
+        "description" : "Enruta contenido multimedia a",
+        "destinationId" : "210",
+        "id" : "232",
+        "sourceId" : "187",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / gRPC"
+      }, {
+        "description" : "Enruta reportes y banca a",
+        "destinationId" : "215",
+        "id" : "233",
+        "sourceId" : "187",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / gRPC"
+      }, {
+        "description" : "Enruta archivos a",
+        "destinationId" : "220",
+        "id" : "234",
+        "sourceId" : "187",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / gRPC"
+      } ],
+      "tags" : "Element,Deployment Node,Amazon Web Services - Elastic Load Balancing",
+      "technology" : "Kong - Enrutamiento, rate limiting, autenticación"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "deploymentGroups" : [ "Auth" ],
+          "description" : "Autenticación OIDC",
+          "environment" : "Arquitectura Microservicios",
+          "id" : "190",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "4ae47db7-91b4-442b-ba97-b8949668f785"
+          },
+          "relationships" : [ {
+            "description" : "Lee de y escribe a",
+            "destinationId" : "194",
+            "id" : "195",
+            "linkedRelationshipId" : "68",
+            "sourceId" : "190",
+            "technology" : "TCP / SQL"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "189",
+        "instances" : "1",
+        "name" : "Node.js",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msAuthApp"
+        },
+        "tags" : "Element,Deployment Node"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "51",
+          "deploymentGroups" : [ "Auth" ],
+          "environment" : "Arquitectura Microservicios",
+          "id" : "194",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "ba6f4665-6ea9-42d5-90c7-077d0c9c8386"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "193",
+        "instances" : "1",
+        "name" : "PostgreSQL",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msAuthDb"
+        },
+        "tags" : "Element,Deployment Node,Amazon Web Services - RDS"
+      } ],
+      "description" : "ms-auth",
+      "environment" : "Arquitectura Microservicios",
+      "id" : "188",
+      "instances" : "1",
+      "name" : "Auth Service",
+      "properties" : {
+        "structurizr.dsl.identifier" : "msAuthNode"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - EC2",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "deploymentGroups" : [ "Core Financial" ],
+          "description" : "Transacciones, Presupuestos, Ahorro, Deudas, Reglas",
+          "environment" : "Arquitectura Microservicios",
+          "id" : "198",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "7cd57f1f-f25b-4476-b1cf-6606c18d9f61"
+          },
+          "relationships" : [ {
+            "description" : "Lee de y escribe a",
+            "destinationId" : "202",
+            "id" : "203",
+            "linkedRelationshipId" : "68",
+            "sourceId" : "198",
+            "technology" : "TCP / SQL"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "197",
+        "instances" : "1",
+        "name" : "Node.js",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msCoreApp"
+        },
+        "tags" : "Element,Deployment Node"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "51",
+          "deploymentGroups" : [ "Core Financial" ],
+          "environment" : "Arquitectura Microservicios",
+          "id" : "202",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "523652ff-8dd8-437c-a283-d719a991a4fb"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "201",
+        "instances" : "1",
+        "name" : "PostgreSQL",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msCoreDb"
+        },
+        "tags" : "Element,Deployment Node,Amazon Web Services - RDS"
+      } ],
+      "description" : "ms-core",
+      "environment" : "Arquitectura Microservicios",
+      "id" : "196",
+      "instances" : "1",
+      "name" : "Core Financial Service",
+      "properties" : {
+        "structurizr.dsl.identifier" : "msCoreNode"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - EC2",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "deploymentGroups" : [ "Notifications" ],
+          "description" : "Notificaciones push y reglas",
+          "environment" : "Arquitectura Microservicios",
+          "id" : "206",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "6d7eb838-f504-4b42-8d9e-5ea414961582"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "205",
+        "instances" : "1",
+        "name" : "Node.js",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msNotifyApp"
+        },
+        "tags" : "Element,Deployment Node"
+      } ],
+      "description" : "ms-notify",
+      "environment" : "Arquitectura Microservicios",
+      "id" : "204",
+      "instances" : "1",
+      "name" : "Notification Service",
+      "properties" : {
+        "structurizr.dsl.identifier" : "msNotifyNode"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - EC2",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "deploymentGroups" : [ "Media" ],
+          "description" : "OCR y transcripción de voz",
+          "environment" : "Arquitectura Microservicios",
+          "id" : "211",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "0a6b263f-facf-4f1e-9c1a-d646aec7c90c"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "210",
+        "instances" : "1",
+        "name" : "Node.js",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msMediaApp"
+        },
+        "tags" : "Element,Deployment Node"
+      } ],
+      "description" : "ms-media",
+      "environment" : "Arquitectura Microservicios",
+      "id" : "209",
+      "instances" : "1",
+      "name" : "Media Service",
+      "properties" : {
+        "structurizr.dsl.identifier" : "msMediaNode"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - EC2",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "deploymentGroups" : [ "Reporting" ],
+          "description" : "Reportes e integración bancaria",
+          "environment" : "Arquitectura Microservicios",
+          "id" : "216",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "359edd28-bd4e-4b39-a02f-918f9d1ef733"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "215",
+        "instances" : "1",
+        "name" : "Node.js",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msReportApp"
+        },
+        "relationships" : [ {
+          "description" : "Almacena reportes en",
+          "destinationId" : "224",
+          "id" : "236",
+          "sourceId" : "215",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / AWS SDK"
+        } ],
+        "tags" : "Element,Deployment Node"
+      } ],
+      "description" : "ms-report",
+      "environment" : "Arquitectura Microservicios",
+      "id" : "214",
+      "instances" : "1",
+      "name" : "Reporting & Banking Service",
+      "properties" : {
+        "structurizr.dsl.identifier" : "msReportNode"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - EC2",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "deploymentGroups" : [ "Files" ],
+          "description" : "Gestión de archivos",
+          "environment" : "Arquitectura Microservicios",
+          "id" : "221",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "7c29a838-c9ba-4e86-bf25-f6567c288f19"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "Arquitectura Microservicios",
+        "id" : "220",
+        "instances" : "1",
+        "name" : "Node.js",
+        "properties" : {
+          "structurizr.dsl.identifier" : "msFileApp"
+        },
+        "relationships" : [ {
+          "description" : "Almacena archivos en",
+          "destinationId" : "224",
+          "id" : "235",
+          "sourceId" : "220",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / AWS SDK"
+        } ],
+        "tags" : "Element,Deployment Node"
+      } ],
+      "description" : "ms-file",
+      "environment" : "Arquitectura Microservicios",
+      "id" : "219",
+      "instances" : "1",
+      "name" : "File Service",
+      "properties" : {
+        "structurizr.dsl.identifier" : "msFileNode"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - EC2",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "containerInstances" : [ {
+        "containerId" : "52",
+        "environment" : "Arquitectura Microservicios",
+        "id" : "225",
+        "instanceId" : 1,
+        "properties" : {
+          "structurizr.dsl.identifier" : "f84aa262-09dd-4444-8f4e-2b294b195cf4"
+        },
+        "tags" : "Container Instance"
+      } ],
+      "environment" : "Arquitectura Microservicios",
+      "id" : "224",
+      "instances" : "1",
+      "name" : "S3",
+      "properties" : {
+        "structurizr.dsl.identifier" : "microStorage"
+      },
+      "tags" : "Element,Deployment Node,Amazon Web Services - S3",
+      "technology" : "Cifrado AES-256"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "12",
+          "environment" : "MVC",
+          "id" : "239",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "034fecda-0135-436d-9410-c39b76277cbb"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "246",
+            "id" : "247",
+            "linkedRelationshipId" : "66",
+            "sourceId" : "239",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "MVC",
+        "id" : "238",
+        "instances" : "1",
+        "name" : "Navegador Web",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mvcBrowser"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Chrome, Firefox, Safari, Edge"
+      }, {
+        "containerInstances" : [ {
+          "containerId" : "26",
+          "environment" : "MVC",
+          "id" : "241",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "8968473d-d7c8-465f-873e-7efbcd273bbf"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes REST a",
+            "destinationId" : "246",
+            "id" : "248",
+            "linkedRelationshipId" : "67",
+            "sourceId" : "241",
+            "technology" : "HTTPS / JSON"
+          } ],
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "MVC",
+        "id" : "240",
+        "instances" : "1",
+        "name" : "App Móvil",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mvcMobile"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Android 10+ / iOS 14+"
+      } ],
+      "environment" : "MVC",
+      "id" : "237",
+      "instances" : "1",
+      "name" : "Dispositivo del Usuario",
+      "properties" : {
+        "structurizr.dsl.identifier" : "mvcUserDev"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Navegador web o dispositivo móvil"
+    }, {
+      "children" : [ {
+        "environment" : "MVC",
+        "id" : "243",
+        "instances" : "1",
+        "name" : "Servidor Web",
+        "properties" : {
+          "structurizr.dsl.identifier" : "webServer"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Nginx"
+      } ],
+      "description" : "server1",
+      "environment" : "MVC",
+      "id" : "242",
+      "instances" : "1",
+      "name" : "Servidor Vista",
+      "properties" : {
+        "structurizr.dsl.identifier" : "mvcView"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "27",
+          "environment" : "MVC",
+          "id" : "246",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "e4d3090b-458e-4c6b-966c-a404c2b35a11"
+          },
+          "relationships" : [ {
+            "description" : "Envía audio para transcripción",
+            "destinationId" : "249",
+            "id" : "250",
+            "linkedRelationshipId" : "70",
+            "sourceId" : "246",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Lee de y escribe a",
+            "destinationId" : "253",
+            "id" : "254",
+            "linkedRelationshipId" : "68",
+            "sourceId" : "246",
+            "technology" : "TCP / SQL"
+          } ],
+          "tags" : "Container Instance"
+        }, {
+          "containerId" : "53",
+          "environment" : "MVC",
+          "id" : "249",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "4192ea32-9182-49ae-b846-127faf9b6372"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "MVC",
+        "id" : "245",
+        "instances" : "1",
+        "name" : "Servidor de Aplicaciones",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mvcAppServer"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "Node.js / NestJS"
+      } ],
+      "description" : "server2",
+      "environment" : "MVC",
+      "id" : "244",
+      "instances" : "1",
+      "name" : "Servidor Controlador",
+      "properties" : {
+        "structurizr.dsl.identifier" : "mvcController"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Windows, Linux o Mac"
+    }, {
+      "children" : [ {
+        "containerInstances" : [ {
+          "containerId" : "51",
+          "environment" : "MVC",
+          "id" : "253",
+          "instanceId" : 1,
+          "properties" : {
+            "structurizr.dsl.identifier" : "4a88f906-a973-4eaa-ac0b-03a316eb2620"
+          },
+          "tags" : "Container Instance"
+        } ],
+        "environment" : "MVC",
+        "id" : "252",
+        "instances" : "1",
+        "name" : "Servidor de Base de Datos",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mvcDbServer"
+        },
+        "tags" : "Element,Deployment Node",
+        "technology" : "PostgreSQL 15"
+      } ],
+      "description" : "server3",
+      "environment" : "MVC",
+      "id" : "251",
+      "instances" : "1",
+      "name" : "Servidor Modelo",
+      "properties" : {
+        "structurizr.dsl.identifier" : "mvcModel"
+      },
+      "tags" : "Element,Deployment Node",
+      "technology" : "Windows, Linux o Mac"
+    } ],
+    "people" : [ {
+      "description" : "Persona que registra sus gastos e ingresos, gestiona presupuestos, consulta planes de ahorro y recibe notificaciones financieras personalizadas.",
+      "id" : "1",
+      "name" : "Usuario",
+      "properties" : {
+        "structurizr.dsl.identifier" : "user"
+      },
+      "relationships" : [ {
+        "description" : "Accede a",
+        "destinationId" : "11",
+        "id" : "54",
+        "sourceId" : "1",
+        "tags" : "Relationship"
+      }, {
+        "description" : "Accede a",
+        "destinationId" : "9",
+        "id" : "61",
+        "sourceId" : "1",
+        "tags" : "Relationship",
+        "technology" : "HTTPS"
+      }, {
+        "description" : "Accede desde el navegador web a",
+        "destinationId" : "12",
+        "id" : "64",
+        "sourceId" : "1",
+        "tags" : "Relationship",
+        "technology" : "HTTPS"
+      }, {
+        "description" : "Accede desde un dispositivo móvil a",
+        "destinationId" : "26",
+        "id" : "65",
+        "sourceId" : "1",
+        "tags" : "Relationship",
+        "technology" : "Android / iOS"
+      } ],
+      "tags" : "Element,Person"
+    }, {
+      "description" : "Persona encargada de monitorear el rendimiento, la salud operativa y las alertas del sistema FinTrack.",
+      "id" : "2",
+      "name" : "Usuario de Sistema",
+      "properties" : {
+        "structurizr.dsl.identifier" : "sistemaUser"
+      },
+      "relationships" : [ {
+        "description" : "Monitorea el rendimiento y estado del sistema en",
+        "destinationId" : "10",
+        "id" : "63",
+        "sourceId" : "2",
+        "tags" : "Relationship"
+      } ],
+      "tags" : "Element,Person"
+    } ],
+    "softwareSystems" : [ {
+      "description" : "Plataforma de Google usada para el envío de notificaciones push (FCM) a los dispositivos de los usuarios.",
+      "documentation" : { },
+      "id" : "3",
+      "name" : "Firebase",
+      "properties" : {
+        "structurizr.dsl.identifier" : "firebase"
+      },
+      "relationships" : [ {
+        "description" : "Envía notificaciones push a",
+        "destinationId" : "25",
+        "id" : "136",
+        "sourceId" : "3",
+        "tags" : "Relationship",
+        "technology" : "FCM / Push API"
+      }, {
+        "description" : "Envía notificaciones push a",
+        "destinationId" : "12",
+        "id" : "137",
+        "linkedRelationshipId" : "136",
+        "sourceId" : "3",
+        "technology" : "FCM / Push API"
+      }, {
+        "description" : "Envía notificaciones push a",
+        "destinationId" : "11",
+        "id" : "138",
+        "linkedRelationshipId" : "136",
+        "sourceId" : "3",
+        "technology" : "FCM / Push API"
+      } ],
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Sistema de gestión de identidad y acceso (IAM). Responsable de la autenticación y autorización mediante el protocolo OIDC.",
+      "documentation" : { },
+      "id" : "4",
+      "name" : "Keycloak",
+      "properties" : {
+        "structurizr.dsl.identifier" : "keycloak"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Servicio externo de Google para reconocimiento óptico de caracteres (OCR). Analiza imágenes de facturas y extrae campos de texto estructurado.",
+      "documentation" : { },
+      "id" : "5",
+      "name" : "Google Cloud Vision API",
+      "properties" : {
+        "structurizr.dsl.identifier" : "googleVision"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Servicio para el envio de correo electrónico.",
+      "documentation" : { },
+      "id" : "6",
+      "name" : "Amazon SES",
+      "properties" : {
+        "structurizr.dsl.identifier" : "awsSES"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "API oficial de Bancolombia que permite consultar saldos y movimientos bancarios del usuario para sincronización automática de transacciones.",
+      "documentation" : { },
+      "id" : "7",
+      "name" : "Bancolombia Open Banking API",
+      "properties" : {
+        "structurizr.dsl.identifier" : "bancolombiaAPI"
+      },
+      "relationships" : [ {
+        "description" : "Reporta información financiera a",
+        "destinationId" : "8",
+        "id" : "60",
+        "sourceId" : "7",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / REST"
+      } ],
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Sistema del gobierno colombiano para gestión tributaria.",
+      "documentation" : { },
+      "id" : "8",
+      "name" : "DIAN",
+      "properties" : {
+        "structurizr.dsl.identifier" : "dian"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Plataforma de contenido educativo para la gestión de finanzas personales.",
+      "documentation" : { },
+      "id" : "9",
+      "name" : "Sistema de Educación Financiera",
+      "properties" : {
+        "structurizr.dsl.identifier" : "finEdSystem"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Servicio de monitoreo y observabilidad de AWS. Recibe logs, métricas y trazas del backend para supervisión operativa y configuración de alarmas.",
+      "documentation" : { },
+      "id" : "10",
+      "name" : "AWS CloudWatch",
+      "properties" : {
+        "structurizr.dsl.identifier" : "cloudwatch"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "containers" : [ {
+        "components" : [ {
+          "description" : "Estructura principal con navegación lateral y enrutamiento entre módulos funcionales.",
+          "documentation" : { },
+          "id" : "13",
+          "name" : "App Shell",
+          "properties" : {
+            "structurizr.dsl.identifier" : "appShell"
+          },
+          "relationships" : [ {
+            "description" : "Navega al módulo de",
+            "destinationId" : "14",
+            "id" : "115",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          }, {
+            "description" : "Navega al módulo de",
+            "destinationId" : "15",
+            "id" : "116",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          }, {
+            "description" : "Navega al módulo de",
+            "destinationId" : "16",
+            "id" : "117",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          }, {
+            "description" : "Navega al módulo de",
+            "destinationId" : "17",
+            "id" : "118",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          }, {
+            "description" : "Navega al módulo de",
+            "destinationId" : "18",
+            "id" : "119",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          }, {
+            "description" : "Navega al módulo de",
+            "destinationId" : "19",
+            "id" : "120",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          }, {
+            "description" : "Navega al módulo de",
+            "destinationId" : "20",
+            "id" : "121",
+            "sourceId" : "13",
+            "tags" : "Relationship",
+            "technology" : "Angular Router"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Component"
+        }, {
+          "description" : "Interfaz de inicio de sesión, registro y recuperación de contraseña mediante flujo OIDC.",
+          "documentation" : { },
+          "id" : "14",
+          "name" : "Autenticación",
+          "properties" : {
+            "structurizr.dsl.identifier" : "webAuth"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de autenticación a",
+            "destinationId" : "24",
+            "id" : "126",
+            "sourceId" : "14",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Resumen financiero con indicadores clave y gráficos de evolución de gastos.",
+          "documentation" : { },
+          "id" : "15",
+          "name" : "Dashboard",
+          "properties" : {
+            "structurizr.dsl.identifier" : "dashboardModule"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de dashboard a",
+            "destinationId" : "24",
+            "id" : "127",
+            "sourceId" : "15",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Listado, filtrado, creación y edición de transacciones financieras.",
+          "documentation" : { },
+          "id" : "16",
+          "name" : "Transacciones",
+          "properties" : {
+            "structurizr.dsl.identifier" : "webTransactions"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de transacciones a",
+            "destinationId" : "24",
+            "id" : "128",
+            "sourceId" : "16",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Creación y monitoreo visual de presupuestos por categoría con alertas de consumo.",
+          "documentation" : { },
+          "id" : "17",
+          "name" : "Presupuestos",
+          "properties" : {
+            "structurizr.dsl.identifier" : "webBudgets"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de presupuestos a",
+            "destinationId" : "24",
+            "id" : "129",
+            "sourceId" : "17",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Visualización de planes de ahorro con metas, proyecciones y progreso.",
+          "documentation" : { },
+          "id" : "18",
+          "name" : "Planes de Ahorro",
+          "properties" : {
+            "structurizr.dsl.identifier" : "webSavings"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de ahorro a",
+            "destinationId" : "24",
+            "id" : "130",
+            "sourceId" : "18",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Comparativa de estrategias de pago con simulación de plazos e intereses.",
+          "documentation" : { },
+          "id" : "19",
+          "name" : "Planes de Deuda",
+          "properties" : {
+            "structurizr.dsl.identifier" : "webDebts"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de deuda a",
+            "destinationId" : "24",
+            "id" : "131",
+            "sourceId" : "19",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Solicitud, visualización y descarga de reportes financieros en PDF y Excel.",
+          "documentation" : { },
+          "id" : "20",
+          "name" : "Reportes",
+          "properties" : {
+            "structurizr.dsl.identifier" : "reportModule"
+          },
+          "relationships" : [ {
+            "description" : "Publica eventos de reportes a",
+            "destinationId" : "24",
+            "id" : "132",
+            "sourceId" : "20",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Module"
+        }, {
+          "description" : "Capa de comunicación HTTP con interceptores JWT, manejo de errores y transformación de respuestas.",
+          "documentation" : { },
+          "id" : "21",
+          "name" : "Cliente API",
+          "properties" : {
+            "structurizr.dsl.identifier" : "apiClient"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitudes HTTP a",
+            "destinationId" : "28",
+            "id" : "122",
+            "sourceId" : "21",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Hace solicitudes HTTP a",
+            "destinationId" : "27",
+            "id" : "123",
+            "linkedRelationshipId" : "122",
+            "sourceId" : "21",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Inicia flujo de autenticación OIDC con",
+            "destinationId" : "4",
+            "id" : "124",
+            "sourceId" : "21",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / OIDC"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Angular Service"
+        }, {
+          "description" : "Gestión del estado de la aplicación con Signals: sesión, catálogos y datos cacheados.",
+          "documentation" : { },
+          "id" : "22",
+          "name" : "Estado Global",
+          "properties" : {
+            "structurizr.dsl.identifier" : "stateStore"
+          },
+          "tags" : "Element,Component",
+          "technology" : "Angular Service"
+        }, {
+          "description" : "Componentes reutilizables: tablas, gráficos financieros, formularios, modales y esqueletos de carga.",
+          "documentation" : { },
+          "id" : "23",
+          "name" : "Biblioteca UI",
+          "properties" : {
+            "structurizr.dsl.identifier" : "uiLibrary"
+          },
+          "tags" : "Element,Component",
+          "technology" : "Angular Component"
+        }, {
+          "description" : "Canal pub-sub que centraliza la comunicación por eventos entre módulos.",
+          "documentation" : { },
+          "id" : "24",
+          "name" : "Bus de Eventos",
+          "properties" : {
+            "structurizr.dsl.identifier" : "eventBus"
+          },
+          "relationships" : [ {
+            "description" : "Despacha eventos de datos a",
+            "destinationId" : "21",
+            "id" : "133",
+            "sourceId" : "24",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Despacha eventos de estado a",
+            "destinationId" : "22",
+            "id" : "134",
+            "sourceId" : "24",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Despacha eventos de UI a",
+            "destinationId" : "23",
+            "id" : "135",
+            "sourceId" : "24",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,EventBus",
+          "technology" : "Angular Service"
+        }, {
+          "description" : "Service worker de Angular PWA para modo offline, precarga de recursos y notificaciones push.",
+          "documentation" : { },
+          "id" : "25",
+          "name" : "Service Worker",
+          "properties" : {
+            "structurizr.dsl.identifier" : "serviceWorker"
+          },
+          "tags" : "Element,Component",
+          "technology" : "Angular Service Worker"
+        } ],
+        "description" : "Aplicación web progresiva orientada a navegadores de escritorio y móvil. Permite el registro de transacciones, gestión de presupuestos, consulta de planes y visualización de reportes.",
+        "documentation" : { },
+        "id" : "12",
+        "name" : "Web",
+        "properties" : {
+          "structurizr.dsl.identifier" : "pwa"
+        },
+        "relationships" : [ {
+          "description" : "Hace solicitudes REST a",
+          "destinationId" : "27",
+          "id" : "66",
+          "sourceId" : "12",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / JSON"
+        }, {
+          "description" : "Solicita funcionalidades del sistema a",
+          "destinationId" : "28",
+          "id" : "77",
+          "sourceId" : "12",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / REST"
+        }, {
+          "description" : "Inicia flujo de autenticación OIDC con",
+          "destinationId" : "4",
+          "id" : "125",
+          "linkedRelationshipId" : "124",
+          "sourceId" : "12",
+          "technology" : "HTTPS / OIDC"
+        } ],
+        "tags" : "Element,Container,WebApp",
+        "technology" : "Javascript y Angular"
+      }, {
+        "description" : "Aplicación móvil nativa para Android e iOS. Ofrece funcionalidades adicionales como captura de facturas con la cámara del dispositivo y registro por voz.",
+        "documentation" : { },
+        "id" : "26",
+        "name" : "Mobile",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mobileApp"
+        },
+        "relationships" : [ {
+          "description" : "Hace solicitudes REST a",
+          "destinationId" : "27",
+          "id" : "67",
+          "sourceId" : "26",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / JSON"
+        }, {
+          "description" : "Solicita funcionalidades del sistema a",
+          "destinationId" : "28",
+          "id" : "78",
+          "sourceId" : "26",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / REST"
+        } ],
+        "tags" : "Element,Container,MobileApp",
+        "technology" : "Flutter"
+      }, {
+        "components" : [ {
+          "description" : "Punto de entrada único para todas las solicitudes de los frontends. Recibe y enruta cada petición al módulo correspondiente del backend.",
+          "documentation" : { },
+          "id" : "28",
+          "name" : "API Gateway",
+          "properties" : {
+            "structurizr.dsl.identifier" : "apiGateway"
+          },
+          "relationships" : [ {
+            "description" : "Enruta peticiones de autenticación a",
+            "destinationId" : "29",
+            "id" : "79",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Enruta peticiones de transacciones a",
+            "destinationId" : "30",
+            "id" : "80",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Enruta peticiones de presupuestos a",
+            "destinationId" : "31",
+            "id" : "81",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Enruta peticiones de planes de ahorro a",
+            "destinationId" : "32",
+            "id" : "82",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Enruta peticiones de planes de deuda a",
+            "destinationId" : "33",
+            "id" : "83",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Enruta peticiones de reportes a",
+            "destinationId" : "37",
+            "id" : "84",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          }, {
+            "description" : "Enruta peticiones de OCR a",
+            "destinationId" : "35",
+            "id" : "85",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / Multipart"
+          }, {
+            "description" : "Enruta peticiones de voz a",
+            "destinationId" : "36",
+            "id" : "86",
+            "sourceId" : "28",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / Multipart"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Gestiona el flujo de autenticación y autorización mediante OIDC. Valida tokens JWT en cada petición entrante.",
+          "documentation" : { },
+          "id" : "29",
+          "name" : "Módulo de Autenticación",
+          "properties" : {
+            "structurizr.dsl.identifier" : "authModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega autenticación a",
+            "destinationId" : "42",
+            "id" : "87",
+            "sourceId" : "29",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Permite crear, editar, eliminar y consultar registros.",
+          "documentation" : { },
+          "id" : "30",
+          "name" : "Módulo de Transacciones",
+          "properties" : {
+            "structurizr.dsl.identifier" : "transactionModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega persistencia a",
+            "destinationId" : "50",
+            "id" : "89",
+            "sourceId" : "30",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Permite crear presupuestos por categoría y período. Monitorea el consumo en tiempo real y dispara alertas cuando se acerca o supera el límite.",
+          "documentation" : { },
+          "id" : "31",
+          "name" : "Módulo de Presupuestos",
+          "properties" : {
+            "structurizr.dsl.identifier" : "budgetModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega persistencia a",
+            "destinationId" : "50",
+            "id" : "90",
+            "sourceId" : "31",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Analiza el flujo de ingresos y gastos del usuario para calcular y proponer planes de ahorro personalizados con metas y plazos.",
+          "documentation" : { },
+          "id" : "32",
+          "name" : "Módulo de Plan de Ahorro",
+          "properties" : {
+            "structurizr.dsl.identifier" : "savingsModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega persistencia a",
+            "destinationId" : "50",
+            "id" : "91",
+            "sourceId" : "32",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Calcula estrategias óptimas de pago de deudas (método avalancha y bola de nieve) basándose en los compromisos financieros registrados por el usuario.",
+          "documentation" : { },
+          "id" : "33",
+          "name" : "Módulo de Plan de Deudas",
+          "properties" : {
+            "structurizr.dsl.identifier" : "debtModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega persistencia a",
+            "destinationId" : "50",
+            "id" : "92",
+            "sourceId" : "33",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Gestiona las reglas de notificación personalizadas según los hábitos de gasto del usuario. Programa y envía notificaciones push a través de FCM.",
+          "documentation" : { },
+          "id" : "34",
+          "name" : "Módulo de Notificaciones",
+          "properties" : {
+            "structurizr.dsl.identifier" : "notificationModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega notificaciones a",
+            "destinationId" : "43",
+            "id" : "94",
+            "sourceId" : "34",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Recibe imágenes generadas por el usuario y extrae los datos de una transacción estructurada.",
+          "documentation" : { },
+          "id" : "35",
+          "name" : "Módulo OCR",
+          "properties" : {
+            "structurizr.dsl.identifier" : "ocrModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega OCR a",
+            "destinationId" : "44",
+            "id" : "96",
+            "sourceId" : "35",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          }, {
+            "description" : "Dirige la imagen a",
+            "destinationId" : "39",
+            "id" : "98",
+            "sourceId" : "35",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          }, {
+            "description" : "Envia datos estructurados a",
+            "destinationId" : "30",
+            "id" : "99",
+            "sourceId" : "35",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Recibe audios y extrae los datos en una transacción estructurada.",
+          "documentation" : { },
+          "id" : "36",
+          "name" : "Módulo de Voz",
+          "properties" : {
+            "structurizr.dsl.identifier" : "voiceModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega transcripción a",
+            "destinationId" : "45",
+            "id" : "100",
+            "sourceId" : "36",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          }, {
+            "description" : "Envia datos estructurados a",
+            "destinationId" : "30",
+            "id" : "102",
+            "sourceId" : "36",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Genera reportes financieros periódicos (PDF/Excel) con resúmenes de gastos, tendencias y proyecciones.",
+          "documentation" : { },
+          "id" : "37",
+          "name" : "Módulo de Reportes",
+          "properties" : {
+            "structurizr.dsl.identifier" : "reportingModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega envío de correos a",
+            "destinationId" : "46",
+            "id" : "103",
+            "sourceId" : "37",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          }, {
+            "description" : "Dirige el reporte a",
+            "destinationId" : "39",
+            "id" : "105",
+            "sourceId" : "37",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Recibe movimientos bancarios y extrae los datos en una transacción estructurada.",
+          "documentation" : { },
+          "id" : "38",
+          "name" : "Módulo de Integración Bancaria",
+          "properties" : {
+            "structurizr.dsl.identifier" : "bankingModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega integración bancaria a",
+            "destinationId" : "47",
+            "id" : "106",
+            "sourceId" : "38",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          }, {
+            "description" : "Envia datos estructurados a",
+            "destinationId" : "30",
+            "id" : "108",
+            "sourceId" : "38",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Centraliza la subida, descarga y gestión del ciclo de vida de archivos en AWS S3.",
+          "documentation" : { },
+          "id" : "39",
+          "name" : "Módulo de Archivos",
+          "properties" : {
+            "structurizr.dsl.identifier" : "fileModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega almacenamiento a",
+            "destinationId" : "48",
+            "id" : "109",
+            "sourceId" : "39",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Intercepta y centraliza los logs de aplicación, errores y métricas de rendimiento para monitoreo y alertas operativas.",
+          "documentation" : { },
+          "id" : "40",
+          "name" : "Módulo de Logging",
+          "properties" : {
+            "structurizr.dsl.identifier" : "loggingModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega monitoreo a",
+            "destinationId" : "49",
+            "id" : "111",
+            "sourceId" : "40",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Motor de reglas que centraliza la lógica condicional del sistema.",
+          "documentation" : { },
+          "id" : "41",
+          "name" : "Módulo de Reglas Financieras",
+          "properties" : {
+            "structurizr.dsl.identifier" : "financialRulesModule"
+          },
+          "relationships" : [ {
+            "description" : "Delega persistencia a",
+            "destinationId" : "50",
+            "id" : "113",
+            "sourceId" : "41",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          }, {
+            "description" : "Dispara notificaciones mediante",
+            "destinationId" : "34",
+            "id" : "114",
+            "sourceId" : "41",
+            "tags" : "Relationship",
+            "technology" : "Internal"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "NestJS Module"
+        }, {
+          "description" : "Puerto de autenticación que abstrae la comunicación con el proveedor IAM. Permite cambiar de proveedor (Keycloak, Auth0, etc.) sin afectar la lógica de negocio del módulo.",
+          "documentation" : { },
+          "id" : "42",
+          "name" : "Adaptador de Autenticación",
+          "properties" : {
+            "structurizr.dsl.identifier" : "authenticationAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitud API a",
+            "destinationId" : "4",
+            "id" : "88",
+            "sourceId" : "42",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / OIDC"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de notificaciones push que abstrae el servicio FCM. Desacopla el envío de notificaciones del proveedor concreto.",
+          "documentation" : { },
+          "id" : "43",
+          "name" : "Adaptador de Notificaciones",
+          "properties" : {
+            "structurizr.dsl.identifier" : "notificationAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Envía notificaciones push vía FCM",
+            "destinationId" : "3",
+            "id" : "95",
+            "sourceId" : "43",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / FCM"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de OCR que abstrae Google Cloud Vision API. Aísla la integración del servicio de reconocimiento óptico del módulo de negocio.",
+          "documentation" : { },
+          "id" : "44",
+          "name" : "Adaptador OCR",
+          "properties" : {
+            "structurizr.dsl.identifier" : "ocrAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitud API a",
+            "destinationId" : "5",
+            "id" : "97",
+            "sourceId" : "44",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de transcripción que abstrae Whisper AI. Desacopla el módulo de voz del motor de transcripción específico.",
+          "documentation" : { },
+          "id" : "45",
+          "name" : "Adaptador de Transcripción",
+          "properties" : {
+            "structurizr.dsl.identifier" : "transcriptionAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitud API a",
+            "destinationId" : "53",
+            "id" : "101",
+            "sourceId" : "45",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de envío de correos que abstrae Amazon SES. Permite cambiar de proveedor de email sin modificar la lógica de negocio del módulo de reportes.",
+          "documentation" : { },
+          "id" : "46",
+          "name" : "Adaptador de Correo",
+          "properties" : {
+            "structurizr.dsl.identifier" : "emailAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitud API a",
+            "destinationId" : "6",
+            "id" : "104",
+            "sourceId" : "46",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de integración bancaria que abstrae la API de Bancolombia. Aísla al dominio de los cambios en la API externa.",
+          "documentation" : { },
+          "id" : "47",
+          "name" : "Adaptador Bancario",
+          "properties" : {
+            "structurizr.dsl.identifier" : "bankingAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitud API a",
+            "destinationId" : "7",
+            "id" : "107",
+            "sourceId" : "47",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / REST"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de almacenamiento que abstrae Amazon S3. Permite cambiar de proveedor de almacenamiento sin afectar a los módulos que gestionan archivos.",
+          "documentation" : { },
+          "id" : "48",
+          "name" : "Adaptador de Archivos",
+          "properties" : {
+            "structurizr.dsl.identifier" : "fileStorageAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Sube, descarga y elimina archivos",
+            "destinationId" : "52",
+            "id" : "110",
+            "sourceId" : "48",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / AWS SDK"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de observabilidad que abstrae AWS CloudWatch. Desacopla el logging y las métricas de la plataforma de monitoreo concreta.",
+          "documentation" : { },
+          "id" : "49",
+          "name" : "Adaptador de Monitoreo",
+          "properties" : {
+            "structurizr.dsl.identifier" : "monitoringAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Hace solicitud API a",
+            "destinationId" : "10",
+            "id" : "112",
+            "sourceId" : "49",
+            "tags" : "Relationship",
+            "technology" : "HTTPS / AWS SDK"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        }, {
+          "description" : "Puerto de persistencia que abstrae el acceso a la base de datos. Centraliza las operaciones de lectura y escritura, permitiendo cambiar de motor de BD (PostgreSQL, MySQL, etc.) sin afectar la lógica de negocio de los módulos.",
+          "documentation" : { },
+          "id" : "50",
+          "name" : "Adaptador de Base de Datos",
+          "properties" : {
+            "structurizr.dsl.identifier" : "databaseAdapter"
+          },
+          "relationships" : [ {
+            "description" : "Lee desde y escribe a",
+            "destinationId" : "51",
+            "id" : "93",
+            "sourceId" : "50",
+            "tags" : "Relationship",
+            "technology" : "TCP / SQL"
+          } ],
+          "tags" : "Element,Component,Adapter",
+          "technology" : "NestJS Service"
+        } ],
+        "description" : "Provee funcionalidades del sistema mediante JSON/HTTP API",
+        "documentation" : { },
+        "id" : "27",
+        "name" : "Backend",
+        "properties" : {
+          "structurizr.dsl.identifier" : "api"
+        },
+        "relationships" : [ {
+          "description" : "Lee de y escribe a",
+          "destinationId" : "51",
+          "id" : "68",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "TCP / SQL"
+        }, {
+          "description" : "Carga y descarga archivos",
+          "destinationId" : "52",
+          "id" : "69",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / AWS SDK"
+        }, {
+          "description" : "Envía audio para transcripción",
+          "destinationId" : "53",
+          "id" : "70",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / REST"
+        }, {
+          "description" : "Hace solicitud API a",
+          "destinationId" : "3",
+          "id" : "71",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / FCM"
+        }, {
+          "description" : "Hace solicitud API a",
+          "destinationId" : "4",
+          "id" : "72",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / OIDC"
+        }, {
+          "description" : "Hace solicitud API a",
+          "destinationId" : "5",
+          "id" : "73",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / REST"
+        }, {
+          "description" : "Hace solicitud API a",
+          "destinationId" : "6",
+          "id" : "74",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / REST"
+        }, {
+          "description" : "Hace solicitud API a",
+          "destinationId" : "10",
+          "id" : "75",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / AWS SDK"
+        }, {
+          "description" : "Hace solicitud API a",
+          "destinationId" : "7",
+          "id" : "76",
+          "sourceId" : "27",
+          "tags" : "Relationship",
+          "technology" : "HTTPS / REST"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Typescript y NestJS"
+      }, {
+        "description" : "Información de usuarios, transacciones, categorías, presupuestos, planes de ahorro, etc",
+        "documentation" : { },
+        "id" : "51",
+        "name" : "Base de datos",
+        "properties" : {
+          "structurizr.dsl.identifier" : "db"
+        },
+        "tags" : "Element,Container,Database",
+        "technology" : "PostgreSQL 15"
+      }, {
+        "description" : "Imagenes de facturas o garantias subidas por el usuario y reportes financieros generados por el sistema.",
+        "documentation" : { },
+        "id" : "52",
+        "name" : "Almacenamiento de Activos",
+        "properties" : {
+          "structurizr.dsl.identifier" : "s3"
+        },
+        "tags" : "Element,Container,FileStorage",
+        "technology" : "Amazon S3"
+      }, {
+        "description" : "Transcribe audio a texto para el registro de transacciones por voz.",
+        "documentation" : { },
+        "id" : "53",
+        "name" : "Whisper",
+        "properties" : {
+          "structurizr.dsl.identifier" : "whisper"
+        },
+        "tags" : "Element,Container,AIService",
+        "technology" : "Whisper AI / Docker"
+      } ],
+      "description" : "Aplicación de finanzas personales que permite registrar gastos e ingresos (manual, por foto o por voz), generar planes de ahorro y pago de deudas, crear presupuestos y recibir notificaciones inteligentes.",
+      "documentation" : { },
+      "id" : "11",
+      "name" : "FinTrack",
+      "properties" : {
+        "structurizr.dsl.identifier" : "fintrack"
+      },
+      "relationships" : [ {
+        "description" : "Envía notificaciones push usando",
+        "destinationId" : "3",
+        "id" : "55",
+        "sourceId" : "11",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / FCM"
+      }, {
+        "description" : "Autentica y autoriza usando",
+        "destinationId" : "4",
+        "id" : "56",
+        "sourceId" : "11",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / OIDC"
+      }, {
+        "description" : "Extrae datos de facturas usando",
+        "destinationId" : "5",
+        "id" : "57",
+        "sourceId" : "11",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / REST"
+      }, {
+        "description" : "Envía reportes financieros usando",
+        "destinationId" : "6",
+        "id" : "58",
+        "sourceId" : "11",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / REST"
+      }, {
+        "description" : "Sincroniza movimientos bancarios usando",
+        "destinationId" : "7",
+        "id" : "59",
+        "sourceId" : "11",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / REST"
+      }, {
+        "description" : "Envía logs y métricas operativas usando",
+        "destinationId" : "10",
+        "id" : "62",
+        "sourceId" : "11",
+        "tags" : "Relationship",
+        "technology" : "HTTPS / AWS SDK"
+      } ],
+      "tags" : "Element,Software System"
+    } ]
+  },
+  "name" : "FinTrack",
+  "properties" : {
+    "structurizr.inspection.error" : "71",
+    "structurizr.inspection.info" : "0",
+    "structurizr.inspection.ignore" : "0",
+    "structurizr.inspection.warning" : "0"
+  },
+  "views" : {
+    "componentViews" : [ {
+      "containerId" : "27",
+      "description" : "Muestra los módulos internos del monolito modular NestJS y sus dependencias hacia sistemas y contenedores externos.",
+      "dimensions" : {
+        "height" : 4662,
+        "width" : 5507
+      },
+      "elements" : [ {
+        "id" : "3",
+        "x" : 4586,
+        "y" : 4062
+      }, {
+        "id" : "4",
+        "x" : 240,
+        "y" : 1180
+      }, {
+        "id" : "5",
+        "x" : 1926,
+        "y" : 4102
+      }, {
+        "id" : "6",
+        "x" : 255,
+        "y" : 1940
+      }, {
+        "id" : "7",
+        "x" : 2435,
+        "y" : 4105
+      }, {
+        "id" : "10",
+        "x" : 200,
+        "y" : 2720
+      }, {
+        "id" : "12",
+        "x" : 2335,
+        "y" : 315
+      }, {
+        "id" : "26",
+        "x" : 3535,
+        "y" : 310
+      }, {
+        "id" : "28",
+        "x" : 2980,
+        "y" : 710
+      }, {
+        "id" : "29",
+        "x" : 1470,
+        "y" : 785
+      }, {
+        "id" : "30",
+        "x" : 2459,
+        "y" : 1521
+      }, {
+        "id" : "31",
+        "x" : 4609,
+        "y" : 1464
+      }, {
+        "id" : "32",
+        "x" : 3509,
+        "y" : 1454
+      }, {
+        "id" : "33",
+        "x" : 4069,
+        "y" : 1464
+      }, {
+        "id" : "34",
+        "x" : 4549,
+        "y" : 2436
+      }, {
+        "id" : "35",
+        "x" : 1894,
+        "y" : 1886
+      }, {
+        "id" : "36",
+        "x" : 2949,
+        "y" : 2014
+      }, {
+        "id" : "37",
+        "x" : 1434,
+        "y" : 1469
+      }, {
+        "id" : "38",
+        "x" : 2404,
+        "y" : 2009
+      }, {
+        "id" : "39",
+        "x" : 1439,
+        "y" : 2251
+      }, {
+        "id" : "40",
+        "x" : 904,
+        "y" : 2266
+      }, {
+        "id" : "41",
+        "x" : 4594,
+        "y" : 1931
+      }, {
+        "id" : "42",
+        "x" : 915,
+        "y" : 1165
+      }, {
+        "id" : "43",
+        "x" : 4570,
+        "y" : 2885
+      }, {
+        "id" : "44",
+        "x" : 1931,
+        "y" : 2362
+      }, {
+        "id" : "45",
+        "x" : 2960,
+        "y" : 2610
+      }, {
+        "id" : "46",
+        "x" : 930,
+        "y" : 1695
+      }, {
+        "id" : "47",
+        "x" : 2430,
+        "y" : 2530
+      }, {
+        "id" : "48",
+        "x" : 1450,
+        "y" : 2735
+      }, {
+        "id" : "49",
+        "x" : 930,
+        "y" : 2690
+      }, {
+        "id" : "50",
+        "x" : 3741,
+        "y" : 2492
+      }, {
+        "id" : "51",
+        "x" : 3725,
+        "y" : 3515
+      }, {
+        "id" : "52",
+        "x" : 1445,
+        "y" : 3540
+      }, {
+        "id" : "53",
+        "x" : 2990,
+        "y" : 3485
+      } ],
+      "externalContainerBoundariesVisible" : false,
+      "key" : "Components",
+      "name" : "Component View: FinTrack - Backend",
+      "order" : 3,
+      "relationships" : [ {
+        "id" : "100"
+      }, {
+        "id" : "101"
+      }, {
+        "id" : "102",
+        "vertices" : [ {
+          "x" : 2954,
+          "y" : 1946
+        } ]
+      }, {
+        "id" : "103"
+      }, {
+        "id" : "104"
+      }, {
+        "id" : "105",
+        "vertices" : [ {
+          "x" : 1659,
+          "y" : 2001
+        } ]
+      }, {
+        "id" : "106"
+      }, {
+        "id" : "107"
+      }, {
+        "id" : "108",
+        "vertices" : [ {
+          "x" : 2654,
+          "y" : 1911
+        } ]
+      }, {
+        "id" : "109"
+      }, {
+        "id" : "110"
+      }, {
+        "id" : "111"
+      }, {
+        "id" : "112"
+      }, {
+        "id" : "113"
+      }, {
+        "id" : "114",
+        "vertices" : [ {
+          "x" : 4819,
+          "y" : 2331
+        } ]
+      }, {
+        "id" : "125",
+        "vertices" : [ {
+          "x" : 465,
+          "y" : 470
+        } ]
+      }, {
+        "id" : "137",
+        "vertices" : [ {
+          "x" : 5234,
+          "y" : 4212
+        }, {
+          "x" : 5234,
+          "y" : 143
+        }, {
+          "x" : 2555,
+          "y" : 143
+        } ]
+      }, {
+        "id" : "77",
+        "vertices" : [ {
+          "x" : 3060,
+          "y" : 585
+        } ]
+      }, {
+        "id" : "78",
+        "vertices" : [ {
+          "x" : 3270,
+          "y" : 600
+        } ]
+      }, {
+        "id" : "79",
+        "vertices" : [ {
+          "x" : 2170,
+          "y" : 895
+        } ]
+      }, {
+        "id" : "80",
+        "vertices" : [ {
+          "x" : 2954,
+          "y" : 1406
+        } ]
+      }, {
+        "id" : "81",
+        "vertices" : [ {
+          "x" : 4834,
+          "y" : 1169
+        } ]
+      }, {
+        "id" : "82",
+        "vertices" : [ {
+          "x" : 3669,
+          "y" : 1351
+        } ]
+      }, {
+        "id" : "83",
+        "vertices" : [ {
+          "x" : 4294,
+          "y" : 1351
+        } ]
+      }, {
+        "id" : "84",
+        "vertices" : [ {
+          "x" : 1889,
+          "y" : 1309
+        } ]
+      }, {
+        "id" : "85",
+        "vertices" : [ {
+          "x" : 2194,
+          "y" : 1461
+        } ]
+      }, {
+        "id" : "86",
+        "vertices" : [ {
+          "x" : 3174,
+          "y" : 1799
+        } ]
+      }, {
+        "id" : "87"
+      }, {
+        "id" : "88"
+      }, {
+        "id" : "89",
+        "vertices" : [ {
+          "x" : 3586,
+          "y" : 2032
+        } ]
+      }, {
+        "id" : "90"
+      }, {
+        "id" : "91"
+      }, {
+        "id" : "92"
+      }, {
+        "id" : "93"
+      }, {
+        "id" : "94"
+      }, {
+        "id" : "95"
+      }, {
+        "id" : "96"
+      }, {
+        "id" : "97"
+      }, {
+        "id" : "98",
+        "vertices" : [ {
+          "x" : 1814,
+          "y" : 2111
+        } ]
+      }, {
+        "id" : "99",
+        "vertices" : [ {
+          "x" : 2309,
+          "y" : 1766
+        } ]
+      } ],
+      "title" : "FinTrack — Diagrama de Componentes (Backend API)"
+    }, {
+      "containerId" : "12",
+      "description" : "Muestra los módulos internos de la aplicación web Angular, sus interacciones internas y dependencias externas con el backend, Keycloak y Firebase.",
+      "dimensions" : {
+        "height" : 3318,
+        "width" : 4205
+      },
+      "elements" : [ {
+        "id" : "3",
+        "x" : 2530,
+        "y" : 2760
+      }, {
+        "id" : "4",
+        "x" : 1320,
+        "y" : 2750
+      }, {
+        "id" : "13",
+        "x" : 1935,
+        "y" : 242
+      }, {
+        "id" : "14",
+        "x" : 1930,
+        "y" : 807
+      }, {
+        "id" : "15",
+        "x" : 2435,
+        "y" : 802
+      }, {
+        "id" : "16",
+        "x" : 2940,
+        "y" : 802
+      }, {
+        "id" : "17",
+        "x" : 3455,
+        "y" : 797
+      }, {
+        "id" : "18",
+        "x" : 300,
+        "y" : 827
+      }, {
+        "id" : "19",
+        "x" : 860,
+        "y" : 812
+      }, {
+        "id" : "20",
+        "x" : 1400,
+        "y" : 802
+      }, {
+        "id" : "21",
+        "x" : 1130,
+        "y" : 1770
+      }, {
+        "id" : "22",
+        "x" : 1920,
+        "y" : 1780
+      }, {
+        "id" : "23",
+        "x" : 2610,
+        "y" : 1780
+      }, {
+        "id" : "24",
+        "x" : 1925,
+        "y" : 1350
+      }, {
+        "id" : "25",
+        "x" : 3340,
+        "y" : 1785
+      }, {
+        "id" : "27",
+        "x" : 1910,
+        "y" : 2270
+      } ],
+      "externalContainerBoundariesVisible" : false,
+      "key" : "WebComponents",
+      "name" : "Component View: FinTrack - Web",
+      "order" : 4,
+      "relationships" : [ {
+        "id" : "115",
+        "vertices" : [ {
+          "x" : 2160,
+          "y" : 697
+        } ]
+      }, {
+        "id" : "116",
+        "vertices" : [ {
+          "x" : 2610,
+          "y" : 687
+        } ]
+      }, {
+        "id" : "117",
+        "vertices" : [ {
+          "x" : 3165,
+          "y" : 732
+        } ]
+      }, {
+        "id" : "118",
+        "vertices" : [ {
+          "x" : 3615,
+          "y" : 657
+        } ]
+      }, {
+        "id" : "119",
+        "vertices" : [ {
+          "x" : 525,
+          "y" : 687
+        } ]
+      }, {
+        "id" : "120",
+        "vertices" : [ {
+          "x" : 1085,
+          "y" : 702
+        } ]
+      }, {
+        "id" : "121",
+        "vertices" : [ {
+          "x" : 1650,
+          "y" : 687
+        } ]
+      }, {
+        "id" : "123",
+        "vertices" : [ {
+          "x" : 1850,
+          "y" : 2255
+        } ]
+      }, {
+        "id" : "124",
+        "vertices" : [ {
+          "x" : 1460,
+          "y" : 2530
+        } ]
+      }, {
+        "id" : "126"
+      }, {
+        "id" : "127",
+        "vertices" : [ {
+          "x" : 2585,
+          "y" : 1195
+        } ]
+      }, {
+        "id" : "128",
+        "vertices" : [ {
+          "x" : 3055,
+          "y" : 1195
+        } ]
+      }, {
+        "id" : "129",
+        "vertices" : [ {
+          "x" : 3420,
+          "y" : 1275
+        } ]
+      }, {
+        "id" : "130",
+        "vertices" : [ {
+          "x" : 910,
+          "y" : 1280
+        } ]
+      }, {
+        "id" : "131",
+        "vertices" : [ {
+          "x" : 1260,
+          "y" : 1210
+        } ]
+      }, {
+        "id" : "132",
+        "vertices" : [ {
+          "x" : 1715,
+          "y" : 1195
+        } ]
+      }, {
+        "id" : "133"
+      }, {
+        "id" : "134"
+      }, {
+        "id" : "135"
+      }, {
+        "id" : "136",
+        "vertices" : [ {
+          "x" : 3355,
+          "y" : 2185
+        } ]
+      }, {
+        "id" : "71",
+        "vertices" : [ {
+          "x" : 2485,
+          "y" : 2685
+        } ]
+      }, {
+        "id" : "72",
+        "vertices" : [ {
+          "x" : 1840,
+          "y" : 2665
+        } ]
+      } ],
+      "title" : "FinTrack — Diagrama de Componentes (Web)"
+    } ],
+    "configuration" : {
+      "lastSavedView" : "Components",
+      "properties" : {
+        "plantuml.format" : "svg",
+        "plantuml.url" : "https://plantuml.com/plantuml"
+      },
+      "styles" : {
+        "elements" : [ {
+          "color" : "#6c3483",
+          "shape" : "Robot",
+          "stroke" : "#6c3483",
+          "tag" : "AIService"
+        }, {
+          "background" : "#e67e22",
+          "color" : "#ffffff",
+          "fontSize" : 24,
+          "shape" : "RoundedBox",
+          "stroke" : "#e67e22",
+          "tag" : "Adapter"
+        }, {
+          "color" : "#333333",
+          "fontSize" : 24,
+          "shape" : "Component",
+          "stroke" : "#85bbf0",
+          "tag" : "Component"
+        }, {
+          "color" : "#438dd5",
+          "shape" : "RoundedBox",
+          "stroke" : "#438dd5",
+          "tag" : "Container"
+        }, {
+          "color" : "#1168bd",
+          "shape" : "Cylinder",
+          "stroke" : "#1168bd",
+          "tag" : "Database"
+        }, {
+          "background" : "#fafafa",
+          "border" : "Solid",
+          "fontSize" : 18,
+          "shape" : "Box",
+          "stroke" : "#333333",
+          "strokeWidth" : 4,
+          "tag" : "Deployment Node"
+        }, {
+          "background" : "#ffffff",
+          "border" : "Solid",
+          "fontSize" : 24,
+          "shape" : "RoundedBox",
+          "strokeWidth" : 10,
+          "tag" : "Element"
+        }, {
+          "background" : "#8e44ad",
+          "color" : "#ffffff",
+          "fontSize" : 24,
+          "shape" : "Pipe",
+          "stroke" : "#8e44ad",
+          "tag" : "EventBus"
+        }, {
+          "color" : "#6b6b6b",
+          "shape" : "RoundedBox",
+          "stroke" : "#6b6b6b",
+          "tag" : "External"
+        }, {
+          "color" : "#6b6b6b",
+          "shape" : "Bucket",
+          "stroke" : "#6b6b6b",
+          "tag" : "FileStorage"
+        }, {
+          "color" : "#438dd5",
+          "shape" : "MobileDeviceLandscape",
+          "stroke" : "#438dd5",
+          "tag" : "MobileApp"
+        }, {
+          "color" : "#1e7a44",
+          "fontSize" : 22,
+          "shape" : "Person",
+          "stroke" : "#1e7a44",
+          "tag" : "Person"
+        }, {
+          "color" : "#1168bd",
+          "shape" : "RoundedBox",
+          "stroke" : "#1168bd",
+          "tag" : "Software System"
+        }, {
+          "color" : "#438dd5",
+          "shape" : "WebBrowser",
+          "stroke" : "#438dd5",
+          "tag" : "WebApp"
+        } ],
+        "relationships" : [ {
+          "color" : "#888888",
+          "dashed" : true,
+          "tag" : "Internal",
+          "thickness" : 4
+        }, {
+          "color" : "#888888",
+          "dashed" : true,
+          "tag" : "Internal / Event",
+          "thickness" : 4
+        }, {
+          "tag" : "Relationship",
+          "thickness" : 4
+        } ]
+      },
+      "terminology" : { },
+      "themes" : [ "https://static.structurizr.com/themes/amazon-web-services-2020.04.30/theme.json", "https://static.structurizr.com/themes/amazon-web-services-2023.01.31/theme.json" ]
+    },
+    "containerViews" : [ {
+      "description" : "Muestra los contenedores que componen FinTrack: frontends (Web PWA Angular y Mobile Flutter), backend API (NestJS), base de datos, almacenamiento y servicios de soporte.",
+      "dimensions" : {
+        "height" : 2818,
+        "width" : 3390
+      },
+      "elements" : [ {
+        "id" : "1",
+        "x" : 1440,
+        "y" : 200
+      }, {
+        "id" : "3",
+        "x" : 200,
+        "y" : 1166
+      }, {
+        "id" : "4",
+        "x" : 230,
+        "y" : 1861
+      }, {
+        "id" : "5",
+        "x" : 565,
+        "y" : 2261
+      }, {
+        "id" : "6",
+        "x" : 1105,
+        "y" : 2261
+      }, {
+        "id" : "7",
+        "x" : 1610,
+        "y" : 2261
+      }, {
+        "id" : "10",
+        "x" : 2120,
+        "y" : 2256
+      }, {
+        "id" : "12",
+        "x" : 814,
+        "y" : 755
+      }, {
+        "id" : "26",
+        "x" : 2050,
+        "y" : 755
+      }, {
+        "id" : "27",
+        "x" : 1290,
+        "y" : 1276
+      }, {
+        "id" : "51",
+        "x" : 2155,
+        "y" : 1721
+      }, {
+        "id" : "52",
+        "x" : 2690,
+        "y" : 1641
+      }, {
+        "id" : "53",
+        "x" : 2710,
+        "y" : 1156
+      } ],
+      "externalSoftwareSystemBoundariesVisible" : false,
+      "key" : "Containers",
+      "name" : "Container View: FinTrack",
+      "order" : 2,
+      "relationships" : [ {
+        "id" : "125",
+        "vertices" : [ {
+          "x" : 680,
+          "y" : 1581
+        } ]
+      }, {
+        "id" : "137",
+        "vertices" : [ {
+          "x" : 425,
+          "y" : 910
+        } ]
+      }, {
+        "id" : "64",
+        "vertices" : [ {
+          "x" : 1175,
+          "y" : 485
+        } ]
+      }, {
+        "id" : "65",
+        "vertices" : [ {
+          "x" : 2115,
+          "y" : 480
+        } ]
+      }, {
+        "id" : "66",
+        "vertices" : [ {
+          "x" : 1405,
+          "y" : 1000
+        } ]
+      }, {
+        "id" : "67",
+        "vertices" : [ {
+          "x" : 1805,
+          "y" : 1010
+        } ]
+      }, {
+        "id" : "68",
+        "vertices" : [ {
+          "x" : 1885,
+          "y" : 1596
+        } ]
+      }, {
+        "id" : "69",
+        "vertices" : [ {
+          "x" : 2385,
+          "y" : 1601
+        } ]
+      }, {
+        "id" : "70",
+        "vertices" : [ {
+          "x" : 2355,
+          "y" : 1306
+        } ]
+      }, {
+        "id" : "71",
+        "vertices" : [ {
+          "x" : 1055,
+          "y" : 1385
+        } ]
+      }, {
+        "id" : "72",
+        "vertices" : [ {
+          "x" : 1130,
+          "y" : 1636
+        } ]
+      }, {
+        "id" : "73",
+        "vertices" : [ {
+          "x" : 1135,
+          "y" : 1936
+        } ]
+      }, {
+        "id" : "74",
+        "vertices" : [ {
+          "x" : 1415,
+          "y" : 1986
+        } ]
+      }, {
+        "id" : "75",
+        "vertices" : [ {
+          "x" : 2010,
+          "y" : 1926
+        } ]
+      }, {
+        "id" : "76",
+        "vertices" : [ {
+          "x" : 1755,
+          "y" : 2001
+        } ]
+      } ],
+      "softwareSystemId" : "11",
+      "title" : "FinTrack — Diagrama de Contenedores"
+    } ],
+    "deploymentViews" : [ {
+      "description" : "Muestra la topología de infraestructura del despliegue monolítico: todos los componentes del sistema (frontend, backend, base de datos) se ejecutan en un mismo servidor, simplificando la administración y reduciendo costos.",
+      "dimensions" : {
+        "height" : 2304,
+        "width" : 3197
+      },
+      "elements" : [ {
+        "id" : "139",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "140",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "141",
+        "x" : 880,
+        "y" : 243
+      }, {
+        "id" : "142",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "143",
+        "x" : 1470,
+        "y" : 243
+      }, {
+        "id" : "144",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "145",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "146",
+        "x" : 1095,
+        "y" : 953
+      }, {
+        "id" : "149",
+        "x" : 1115,
+        "y" : 1413
+      }, {
+        "id" : "151",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "152",
+        "x" : 1865,
+        "y" : 953
+      } ],
+      "environment" : "Monolito",
+      "key" : "MonolithDeployment",
+      "name" : "Deployment View: FinTrack - Monolito",
+      "order" : 6,
+      "relationships" : [ {
+        "id" : "147"
+      }, {
+        "id" : "148"
+      }, {
+        "id" : "150"
+      }, {
+        "id" : "153"
+      } ],
+      "softwareSystemId" : "11",
+      "title" : "FinTrack — Diagrama de Despliegue (Monolito)"
+    }, {
+      "description" : "Muestra la topología de infraestructura en la nube usando servicios AWS: CloudFront como CDN, ALB para balanceo, ECS Fargate para el backend, RDS para la base de datos y S3 para almacenamiento de activos.",
+      "dimensions" : {
+        "height" : 1884,
+        "width" : 2938
+      },
+      "elements" : [ {
+        "id" : "154",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "155",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "156",
+        "x" : 313,
+        "y" : 257
+      }, {
+        "id" : "157",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "158",
+        "x" : 314,
+        "y" : 800
+      }, {
+        "id" : "159",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "162",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "163",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "164",
+        "x" : 1363,
+        "y" : 347
+      }, {
+        "id" : "167",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "168",
+        "x" : 2173,
+        "y" : 292
+      }, {
+        "id" : "170",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "171",
+        "x" : 2168,
+        "y" : 1092
+      }, {
+        "id" : "173",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "174",
+        "x" : 1568,
+        "y" : 1092
+      } ],
+      "environment" : "Cloud",
+      "key" : "CloudDeployment",
+      "name" : "Deployment View: FinTrack - Cloud",
+      "order" : 7,
+      "relationships" : [ {
+        "id" : "165",
+        "vertices" : [ {
+          "x" : 1053,
+          "y" : 452
+        } ]
+      }, {
+        "id" : "166",
+        "vertices" : [ {
+          "x" : 1083,
+          "y" : 727
+        } ]
+      }, {
+        "id" : "169",
+        "vertices" : [ {
+          "x" : 2003,
+          "y" : 497
+        } ]
+      }, {
+        "id" : "172",
+        "vertices" : [ {
+          "x" : 2033,
+          "y" : 907
+        } ]
+      }, {
+        "id" : "175",
+        "vertices" : [ {
+          "x" : 1728,
+          "y" : 1037
+        } ]
+      } ],
+      "softwareSystemId" : "11",
+      "title" : "FinTrack — Diagrama de Despliegue (Cloud)"
+    }, {
+      "description" : "Muestra la topología de infraestructura del despliegue basado en microservicios: cada módulo del backend se despliega como un servicio independiente con su propia base de datos, orquestados por un API Gateway (Kong) y servidos a través de CloudFront.",
+      "dimensions" : {
+        "height" : 4455,
+        "width" : 3600
+      },
+      "elements" : [ {
+        "id" : "181",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "182",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "183",
+        "x" : 319,
+        "y" : 1698
+      }, {
+        "id" : "184",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "185",
+        "x" : 324,
+        "y" : 2258
+      }, {
+        "id" : "188",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "189",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "190",
+        "x" : 1945,
+        "y" : 247
+      }, {
+        "id" : "193",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "194",
+        "x" : 2820,
+        "y" : 242
+      }, {
+        "id" : "196",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "197",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "198",
+        "x" : 1939,
+        "y" : 2298
+      }, {
+        "id" : "201",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "202",
+        "x" : 2830,
+        "y" : 2297
+      }, {
+        "id" : "204",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "205",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "206",
+        "x" : 1934,
+        "y" : 2983
+      }, {
+        "id" : "209",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "210",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "211",
+        "x" : 1924,
+        "y" : 3663
+      }, {
+        "id" : "214",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "215",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "216",
+        "x" : 1943,
+        "y" : 945
+      }, {
+        "id" : "219",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "220",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "221",
+        "x" : 1938,
+        "y" : 1625
+      }, {
+        "id" : "224",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "225",
+        "x" : 2870,
+        "y" : 1227
+      } ],
+      "environment" : "Arquitectura Microservicios",
+      "key" : "MicroservicesDeployment",
+      "name" : "Deployment View: FinTrack - Arquitectura Microservicios",
+      "order" : 8,
+      "relationships" : [ {
+        "id" : "191",
+        "vertices" : [ {
+          "x" : 1689,
+          "y" : 548
+        } ]
+      }, {
+        "id" : "192",
+        "vertices" : [ {
+          "x" : 1699,
+          "y" : 688
+        } ]
+      }, {
+        "id" : "195"
+      }, {
+        "id" : "199",
+        "vertices" : [ {
+          "x" : 1579,
+          "y" : 2258
+        } ]
+      }, {
+        "id" : "200",
+        "vertices" : [ {
+          "x" : 1564,
+          "y" : 2388
+        } ]
+      }, {
+        "id" : "203"
+      }, {
+        "id" : "207",
+        "vertices" : [ {
+          "x" : 1594,
+          "y" : 2878
+        } ]
+      }, {
+        "id" : "208",
+        "vertices" : [ {
+          "x" : 1614,
+          "y" : 3058
+        } ]
+      }, {
+        "id" : "212",
+        "vertices" : [ {
+          "x" : 1629,
+          "y" : 3453
+        } ]
+      }, {
+        "id" : "213",
+        "vertices" : [ {
+          "x" : 1629,
+          "y" : 3623
+        } ]
+      }, {
+        "id" : "217",
+        "vertices" : [ {
+          "x" : 1674,
+          "y" : 1095
+        } ]
+      }, {
+        "id" : "218",
+        "vertices" : [ {
+          "x" : 1679,
+          "y" : 1248
+        } ]
+      }, {
+        "id" : "222"
+      }, {
+        "id" : "223"
+      }, {
+        "id" : "235"
+      }, {
+        "id" : "236"
+      } ],
+      "softwareSystemId" : "11",
+      "title" : "FinTrack — Diagrama de Despliegue (Arquitectura Microservicios)"
+    }, {
+      "description" : "Muestra la topología de infraestructura del despliegue en estilo MVC: Servidor Vista (frontend web), Servidor Controlador (backend API) y Servidor Modelo (base de datos), cada uno en su propia capa física.",
+      "dimensions" : {
+        "height" : 2521,
+        "width" : 2952
+      },
+      "elements" : [ {
+        "id" : "237",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "238",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "239",
+        "x" : 653,
+        "y" : 242
+      }, {
+        "id" : "240",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "241",
+        "x" : 1848,
+        "y" : 252
+      }, {
+        "id" : "244",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "245",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "246",
+        "x" : 895,
+        "y" : 989
+      }, {
+        "id" : "249",
+        "x" : 1730,
+        "y" : 949
+      }, {
+        "id" : "251",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "252",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "253",
+        "x" : 1305,
+        "y" : 1729
+      } ],
+      "environment" : "MVC",
+      "key" : "MVCDeployment",
+      "name" : "Deployment View: FinTrack - MVC",
+      "order" : 9,
+      "relationships" : [ {
+        "id" : "247"
+      }, {
+        "id" : "248"
+      }, {
+        "id" : "250"
+      }, {
+        "id" : "254"
+      } ],
+      "softwareSystemId" : "11",
+      "title" : "FinTrack — Diagrama de Despliegue (MVC)"
+    } ],
+    "systemContextViews" : [ {
+      "description" : "Muestra FinTrack como sistema central, el usuario que lo utiliza y todos los sistemas externos del ecosistema: autenticación (Keycloak), notificaciones push (Firebase), OCR (Google Cloud Vision), correos transaccionales (Amazon SES), integración bancaria (Bancolombia Open Banking API), monitoreo (AWS CloudWatch), entidad gubernamental (DIAN) y educación financiera.",
+      "dimensions" : {
+        "height" : 1834,
+        "width" : 5285
+      },
+      "elements" : [ {
+        "id" : "1",
+        "x" : 2112,
+        "y" : 143
+      }, {
+        "id" : "2",
+        "x" : 3665,
+        "y" : 575
+      }, {
+        "id" : "3",
+        "x" : 1099,
+        "y" : 1277
+      }, {
+        "id" : "4",
+        "x" : 1599,
+        "y" : 1277
+      }, {
+        "id" : "5",
+        "x" : 2099,
+        "y" : 1277
+      }, {
+        "id" : "6",
+        "x" : 2599,
+        "y" : 1277
+      }, {
+        "id" : "7",
+        "x" : 3099,
+        "y" : 1277
+      }, {
+        "id" : "10",
+        "x" : 3595,
+        "y" : 1275
+      }, {
+        "id" : "11",
+        "x" : 2100,
+        "y" : 750
+      } ],
+      "enterpriseBoundaryVisible" : true,
+      "key" : "SystemContext",
+      "name" : "System Context View: FinTrack",
+      "order" : 1,
+      "relationships" : [ {
+        "id" : "138",
+        "vertices" : [ {
+          "x" : 1480,
+          "y" : 1105
+        } ]
+      }, {
+        "id" : "54"
+      }, {
+        "id" : "55",
+        "vertices" : [ {
+          "x" : 1420,
+          "y" : 935
+        } ]
+      }, {
+        "id" : "56",
+        "vertices" : [ {
+          "x" : 1824,
+          "y" : 1172
+        } ]
+      }, {
+        "id" : "57",
+        "vertices" : [ {
+          "x" : 2324,
+          "y" : 1172
+        } ]
+      }, {
+        "id" : "58",
+        "vertices" : [ {
+          "x" : 2824,
+          "y" : 1172
+        } ]
+      }, {
+        "id" : "59",
+        "vertices" : [ {
+          "x" : 3324,
+          "y" : 1172
+        } ]
+      }, {
+        "id" : "62",
+        "vertices" : [ {
+          "x" : 3635,
+          "y" : 1060
+        } ]
+      }, {
+        "id" : "63"
+      } ],
+      "softwareSystemId" : "11",
+      "title" : "FinTrack — Diagrama de Contexto del Sistema"
+    } ],
+    "systemLandscapeViews" : [ {
+      "description" : "Visión amplia del ecosistema FinTrack que incluye todos los sistemas internos y externos, más las relaciones entre sistemas externos (ej: Bancolombia reporta a DIAN). A diferencia del diagrama de contexto, aquí se muestran los sistemas de soporte técnico (OCR, correos, almacenamiento) y las interconexiones del entorno financiero colombiano.",
+      "dimensions" : {
+        "height" : 2370,
+        "width" : 4925
+      },
+      "elements" : [ {
+        "id" : "1",
+        "x" : 2492,
+        "y" : 143
+      }, {
+        "id" : "2",
+        "x" : 3625,
+        "y" : 640
+      }, {
+        "id" : "3",
+        "x" : 875,
+        "y" : 1304
+      }, {
+        "id" : "4",
+        "x" : 1415,
+        "y" : 1304
+      }, {
+        "id" : "5",
+        "x" : 1915,
+        "y" : 1304
+      }, {
+        "id" : "6",
+        "x" : 2415,
+        "y" : 1304
+      }, {
+        "id" : "7",
+        "x" : 2915,
+        "y" : 1304
+      }, {
+        "id" : "8",
+        "x" : 2915,
+        "y" : 1812
+      }, {
+        "id" : "9",
+        "x" : 2925,
+        "y" : 615
+      }, {
+        "id" : "10",
+        "x" : 3600,
+        "y" : 1304
+      }, {
+        "id" : "11",
+        "x" : 1915,
+        "y" : 743
+      } ],
+      "enterpriseBoundaryVisible" : true,
+      "key" : "Landscape",
+      "name" : "System Landscape View",
+      "order" : 5,
+      "relationships" : [ {
+        "id" : "138",
+        "vertices" : [ {
+          "x" : 1265,
+          "y" : 1230
+        } ]
+      }, {
+        "id" : "54",
+        "vertices" : [ {
+          "x" : 2140,
+          "y" : 618
+        } ]
+      }, {
+        "id" : "55",
+        "vertices" : [ {
+          "x" : 1100,
+          "y" : 1070
+        } ]
+      }, {
+        "id" : "56",
+        "vertices" : [ {
+          "x" : 1750,
+          "y" : 1225
+        } ]
+      }, {
+        "id" : "57"
+      }, {
+        "id" : "58",
+        "vertices" : [ {
+          "x" : 2640,
+          "y" : 1199
+        } ]
+      }, {
+        "id" : "59",
+        "vertices" : [ {
+          "x" : 3140,
+          "y" : 1199
+        } ]
+      }, {
+        "id" : "60"
+      }, {
+        "id" : "61",
+        "vertices" : [ {
+          "x" : 3155,
+          "y" : 520
+        } ]
+      }, {
+        "id" : "62",
+        "vertices" : [ {
+          "x" : 3475,
+          "y" : 1105
+        } ]
+      }, {
+        "id" : "63"
+      } ],
+      "title" : "FinTrack — Diagrama de Paisaje del Sistema (Ecosistema Completo)"
+    } ]
+  }
+}
